@@ -32,7 +32,7 @@ use crate::skin::Skin;
 use crate::ui::canvas::Canvas;
 use crate::ui::eq_window::{self, EqState};
 use crate::ui::main_window::{self, Control, Hit, MainState, Slider};
-use crate::ui::menu::{self, Menu};
+use crate::ui::menu::Menu;
 use crate::ui::playlist_window::{self, PlaylistView};
 use crate::ui::text::Font;
 use crate::vis::Visualizer;
@@ -158,9 +158,10 @@ pub struct App {
     menu_view: Option<View>,
     /// The open pop-up text menu, if any.
     menu: Option<Menu>,
-    /// The skin's playlist font, and the font for pop-up menus.
+    /// The skin's playlist font, and the font for pop-up menus (loaded for
+    /// the screen's scale, 2.0 on Retina).
     pl_font: Option<Font>,
-    menu_font: Option<Font>,
+    menu_font: Option<(Font, f64)>,
     player: Player,
     playlist: Playlist,
     metadata: MetadataReader,
@@ -253,7 +254,7 @@ impl App {
             menu_view: None,
             menu: None,
             pl_font,
-            menu_font: Font::load("Tahoma", menu::FONT_PX),
+            menu_font: None,
             player: Player::new(),
             playlist: Playlist::default(),
             metadata: MetadataReader::new(move || {
@@ -621,10 +622,11 @@ impl App {
                 view.present()
             }
             Kind::Menu => {
-                let (Some(view), Some(menu), Some(font)) = (&mut self.menu_view, &self.menu, &mut self.menu_font) else {
+                let (Some(view), Some(menu), Some((font, scale))) = (&mut self.menu_view, &self.menu, &mut self.menu_font)
+                else {
                     return Ok(());
                 };
-                menu.draw(&mut view.canvas, font);
+                menu.draw(&mut view.canvas, font, *scale);
                 view.present()
             }
         }

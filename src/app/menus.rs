@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use winit::dpi::PhysicalPosition;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
 
 use super::{App, Kind, Show, View, file_name, is_skin, open_skin};
@@ -10,7 +10,9 @@ use crate::audio::{self, PlayState};
 use crate::config;
 use crate::eqf;
 use crate::ui::eq_window;
-use crate::ui::menu::{Action, Item, Menu};
+use crate::ui::canvas::Canvas;
+use crate::ui::menu::{self, Action, Item, Menu};
+use crate::ui::text::Font;
 use crate::vis::Mode;
 
 /// The skin browser lists at most this many skins.
@@ -25,12 +27,23 @@ impl App {
         self.close_text_menu();
         self.clear_hover();
         let menu = Menu::new(items);
-        let Some(font) = self.menu_font.as_mut() else { return };
-        let (width, height) = menu.size(font);
         let Some(parent) = self.view(over) else { return };
+        let scale = parent.window.scale_factor();
         let Ok(origin) = parent.window.outer_position() else { return };
         let position = PhysicalPosition::new(origin.x + parent.cursor.x as i32, origin.y + parent.cursor.y as i32);
-        let view = View::new(event_loop, "menu", width, height, self.zoom(), Show::at(position, true));
+
+        // Drawn at the screen's real pixel size, so the text is sharp.
+        if self.menu_font.as_ref().is_none_or(|(_, s)| *s != scale) {
+            self.menu_font = Font::load("Tahoma", menu::FONT_PX * scale as f32).map(|font| (font, scale));
+        }
+        let Some((font, _)) = self.menu_font.as_mut() else { return };
+        let (width, height) = menu.size(font, scale);
+        let size = PhysicalSize::new(width, height);
+        let points = size.to_logical::<f64>(scale);
+        let (w, h) = (points.width.ceil() as u32, points.height.ceil() as u32);
+        let mut view = View::new(event_loop, "menu", w, h, 1, Show::at(position, true));
+        let _ = view.window.request_inner_size(size);
+        view.canvas = Canvas::new(width, height);
         if self.always_on_top {
             view.window.set_window_level(winit::window::WindowLevel::AlwaysOnTop);
         }
@@ -45,10 +58,9 @@ impl App {
     }
 
     pub(super) fn menu_mouse_moved(&mut self) {
-        let zoom = self.zoom();
         let (Some(view), Some(menu)) = (&self.menu_view, &mut self.menu) else { return };
-        let (_, y) = view.cursor_in_skin(zoom);
-        menu.hovered = menu.item_at(y);
+        // The menu is drawn one canvas pixel per screen pixel.
+        menu.hovered = menu.item_at(view.cursor.y as i32, view.window.scale_factor());
     }
 
     pub(super) fn menu_mouse_up(&mut self, event_loop: &ActiveEventLoop) {

@@ -6,3 +6,4 @@ pub mod main_window;
 pub mod menu;
 pub mod playlist_window;
 pub mod text;
+pub mod tooltip;

@@ -7,6 +7,7 @@
 mod equalizer;
 mod menus;
 mod playlist;
+mod tooltips;
 mod windows;
 
 use std::num::NonZeroU32;
@@ -36,6 +37,7 @@ use crate::ui::playlist_window::{self, PlaylistView};
 use crate::ui::text::Font;
 use crate::vis::Visualizer;
 use playlist::PlDrag;
+use tooltips::Hover;
 use windows::WindowDrag;
 
 /// How often the display updates while something is moving (about 30 fps).
@@ -81,21 +83,33 @@ struct View {
     cursor: PhysicalPosition<f64>,
 }
 
+/// How a new window appears.
+struct Show {
+    visible: bool,
+    /// Whether it takes keyboard focus when it appears.
+    active: bool,
+    /// Where on screen, or `None` to let the system choose.
+    position: Option<PhysicalPosition<i32>>,
+}
+
+impl Show {
+    /// Created hidden, to be shown later.
+    const HIDDEN: Show = Show { visible: false, active: true, position: None };
+
+    fn at(position: PhysicalPosition<i32>, active: bool) -> Show {
+        Show { visible: true, active, position: Some(position) }
+    }
+}
+
 impl View {
-    fn new(
-        event_loop: &ActiveEventLoop,
-        title: &str,
-        width: u32,
-        height: u32,
-        zoom: u32,
-        visible: bool,
-        position: Option<PhysicalPosition<i32>>,
-    ) -> View {
+    fn new(event_loop: &ActiveEventLoop, title: &str, width: u32, height: u32, zoom: u32, show: Show) -> View {
+        let Show { visible, active, position } = show;
         let mut attributes = Window::default_attributes()
             .with_title(title)
             .with_decorations(false) // the skin draws its own title bar
             .with_resizable(false)
             .with_visible(visible)
+            .with_active(active)
             .with_inner_size(LogicalSize::new(width * zoom, height * zoom));
         if let Some(position) = position {
             attributes = attributes.with_position(position);
@@ -160,6 +174,12 @@ pub struct App {
     /// Per-song equalizer settings for the EQ's "auto" button.
     auto_presets: std::collections::HashMap<String, [f32; 11]>,
     window_drag: Option<WindowDrag>,
+    /// The control the mouse is resting on, for its tooltip.
+    hover: Option<Hover>,
+    tooltip_view: Option<View>,
+    tooltip_text: String,
+    /// The tooltip font, loaded for the screen's scale (2.0 on Retina).
+    tooltip_font: Option<(Font, f64)>,
     /// When and where the title bar was last clicked, to spot double-clicks.
     last_title_click: Option<(Kind, Instant)>,
     /// The skins listed in the open skin browser.
@@ -249,6 +269,10 @@ impl App {
             shown: vec![Kind::Main],
             skin_choices: Vec::new(),
             last_title_click: None,
+            hover: None,
+            tooltip_view: None,
+            tooltip_text: String::new(),
+            tooltip_font: None,
             message: None,
             clock: now,
             next_frame: now,
@@ -844,7 +868,8 @@ impl ApplicationHandler<UserEvent> for App {
         let zoom = self.zoom();
         let main_position = self.saved_positions.main.map(|[x, y]| PhysicalPosition::new(x, y));
         let (width, height) = self.skin_size(Kind::Main);
-        self.main_view = Some(View::new(event_loop, "skinamp", width, height, zoom, true, main_position));
+        let show = Show { visible: true, active: true, position: main_position };
+        self.main_view = Some(View::new(event_loop, "skinamp", width, height, zoom, show));
         // A saved position on a screen that's no longer connected is dropped.
         if let Some([x, y]) = self.saved_positions.main
             && !self.on_screen(x, y)
@@ -854,9 +879,9 @@ impl ApplicationHandler<UserEvent> for App {
         }
         // The other windows are created hidden and shown when opened.
         let (width, height) = self.skin_size(Kind::Equalizer);
-        self.eq_view = Some(View::new(event_loop, "Equalizer", width, height, zoom, false, None));
+        self.eq_view = Some(View::new(event_loop, "Equalizer", width, height, zoom, Show::HIDDEN));
         let (width, height) = self.skin_size(Kind::Playlist);
-        self.pl_view = Some(View::new(event_loop, "Playlist", width, height, zoom, false, None));
+        self.pl_view = Some(View::new(event_loop, "Playlist", width, height, zoom, Show::HIDDEN));
         if self.saved_positions.equalizer_open {
             self.set_equalizer_open(true);
         }
@@ -889,7 +914,18 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        // The tooltip window only ever needs drawing.
+        if self.tooltip_view.as_ref().is_some_and(|v| v.window.id() == id) {
+            if matches!(event, WindowEvent::RedrawRequested) {
+                self.render_tooltip();
+            }
+            return;
+        }
         let Some(kind) = self.kind_of(id) else { return };
+        // A click puts the tooltip away until the mouse moves to another control.
+        if matches!(event, WindowEvent::MouseInput { state: ElementState::Pressed, .. }) {
+            self.dismiss_tooltip();
+        }
         match event {
             WindowEvent::CloseRequested => match kind {
                 Kind::Main => event_loop.exit(),
@@ -919,6 +955,7 @@ impl ApplicationHandler<UserEvent> for App {
                 if self.continue_window_drag(kind) {
                     return;
                 }
+                self.update_hover(kind);
                 let Some(view) = self.view(kind) else { return };
                 let (x, y) = view.cursor_in_skin(zoom);
                 match kind {
@@ -931,6 +968,10 @@ impl ApplicationHandler<UserEvent> for App {
                     Kind::Menu => self.menu_mouse_moved(),
                     _ => return, // nothing changes on screen
                 }
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.clear_hover();
+                return;
             }
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. }
                 if self.window_drag.is_some() =>
@@ -986,6 +1027,8 @@ impl ApplicationHandler<UserEvent> for App {
     /// Runs when the app has handled all pending events and is about to
     /// sleep. While something is moving, wake up again for the next frame.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.refresh_tooltip(event_loop);
+        let mut wake = None;
         if self.animating() {
             let now = Instant::now();
             if now >= self.next_frame {
@@ -993,10 +1036,16 @@ impl ApplicationHandler<UserEvent> for App {
                 self.redraw(Kind::Playlist); // its mini time display
                 self.next_frame = now + FRAME;
             }
-            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
-        } else {
-            event_loop.set_control_flow(ControlFlow::Wait);
+            wake = Some(self.next_frame);
         }
+        // Also wake up when a tooltip is due to appear.
+        if let Some(due) = self.tooltip_due() {
+            wake = Some(wake.map_or(due, |w: Instant| w.min(due)));
+        }
+        event_loop.set_control_flow(match wake {
+            Some(time) => ControlFlow::WaitUntil(time),
+            None => ControlFlow::Wait,
+        });
     }
 }
 

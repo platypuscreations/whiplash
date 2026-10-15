@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use winit::dpi::PhysicalPosition;
 use winit::event_loop::ActiveEventLoop;
 
-use super::{App, Kind, View, file_name, is_skin, open_skin};
+use super::{App, Kind, Show, View, file_name, is_skin, open_skin};
 use crate::audio::{self, PlayState};
 use crate::config;
 use crate::eqf;
@@ -23,13 +23,14 @@ impl App {
     /// Opens a pop-up menu at the mouse position in window `over`.
     pub(super) fn open_menu(&mut self, event_loop: &ActiveEventLoop, over: Kind, items: Vec<Item>) {
         self.close_text_menu();
+        self.clear_hover();
         let menu = Menu::new(items);
         let Some(font) = self.menu_font.as_mut() else { return };
         let (width, height) = menu.size(font);
         let Some(parent) = self.view(over) else { return };
         let Ok(origin) = parent.window.outer_position() else { return };
         let position = PhysicalPosition::new(origin.x + parent.cursor.x as i32, origin.y + parent.cursor.y as i32);
-        let view = View::new(event_loop, "menu", width, height, self.zoom(), true, Some(position));
+        let view = View::new(event_loop, "menu", width, height, self.zoom(), Show::at(position, true));
         if self.always_on_top {
             view.window.set_window_level(winit::window::WindowLevel::AlwaysOnTop);
         }

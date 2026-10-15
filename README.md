@@ -32,6 +32,7 @@ cargo run -- --render-to out.bmp path/to/skin.wsz  # save a screenshot without o
 | +12 / 0 / −12 dB labels | Set every band at once |
 | Ctrl+D (Cmd+D) | Double size |
 | Ctrl+T (Cmd+T) | Always on top |
+| Rest the mouse on a control | Tooltip naming it, with its current setting |
 | Right-click, O button | Main menu |
 | Alt+S | Skin browser |
 | Clutter bar O / A / I / D / V | Menu, always on top, file info, double size, visualizer |

@@ -13,10 +13,12 @@
 //! has to be flushed while another thread is using it.
 
 mod decode;
+mod equalizer;
 mod output;
 mod resample;
 
 pub use decode::{EXTENSIONS, TrackInfo};
+pub use equalizer::{BAND_HZ as EQ_BAND_HZ, MAX_DB as EQ_MAX_DB};
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -30,6 +32,7 @@ use ringbuf::traits::{Producer, Split};
 use ringbuf::{HeapProd, HeapRb};
 
 use decode::Track;
+use equalizer::EqShared;
 use resample::Resampler;
 
 /// How much decoded audio is kept ready ahead of the sound card.
@@ -52,6 +55,7 @@ pub struct Settings {
     paused: AtomicBool,
     /// The sound most recently sent to the sound card, for visualizers.
     history: Mutex<History>,
+    eq: EqShared,
 }
 
 impl Settings {
@@ -203,6 +207,7 @@ impl Player {
                 balance: AtomicU32::new(0.0f32.to_bits()),
                 paused: AtomicBool::new(false),
                 history: Mutex::new(History::new()),
+                eq: EqShared::new(),
             }),
             playback: None,
             info: None,
@@ -288,6 +293,12 @@ impl Player {
     /// 0.0 to 1.0.
     pub fn set_volume(&self, volume: f32) {
         self.settings.volume.store(volume.clamp(0.0, 1.0).to_bits(), Relaxed);
+    }
+
+    /// Equalizer settings: preamp and the ten bands in decibels
+    /// (-12 to +12). Takes effect within a few milliseconds.
+    pub fn set_equalizer(&self, enabled: bool, preamp_db: f32, bands_db: [f32; 10]) {
+        self.settings.eq.set(enabled, preamp_db, bands_db);
     }
 
     /// -1.0 (left) to 1.0 (right).

@@ -2,7 +2,7 @@
 
 A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.wsz`).
 
-Status: phase 3 (visualizer). The main window renders from any classic skin, plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A), and shows the classic spectrum analyzer or oscilloscope in the skin's colors. The equalizer and playlist windows come in later phases.
+Status: phase 4 (equalizer). The main window renders from any classic skin, plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A), and shows the classic spectrum analyzer or oscilloscope in the skin's colors. The equalizer window has a 10-band EQ with preamp and loads and saves Winamp `.eqf` presets. The playlist window comes next.
 
 ## Running
 
@@ -20,6 +20,9 @@ cargo run -- --render-to out.bmp path/to/skin.wsz  # save a screenshot without o
 | ↑ / ↓, mouse wheel | Volume |
 | Click the time | Switch between elapsed and remaining |
 | Click the visualizer | Analyzer → oscilloscope → off |
+| EQ button, Alt+G | Show or hide the equalizer |
+| Presets button | Load or save a Winamp `.eqf` preset |
+| +12 / 0 / −12 dB labels | Set every band at once |
 | Ctrl+D (Cmd+D) | Double size |
 | Drag the title bar | Move the window |
 

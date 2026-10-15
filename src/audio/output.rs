@@ -14,6 +14,7 @@ use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
 use ringbuf::HeapCons;
 use ringbuf::traits::{Consumer, Observer};
 
+use super::equalizer::Equalizer;
 use super::{PlaybackShared, Settings};
 
 /// An open stream to the sound device. Sound stops when this is dropped.
@@ -71,6 +72,7 @@ where
     let channels = config.channels as usize;
     // Allocated once here, so the callback itself never allocates.
     let mut scratch = vec![0.0f32; 16 * 1024];
+    let mut equalizer = Equalizer::new(config.sample_rate);
 
     let callback = move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
         let frames = data.len() / channels;
@@ -84,6 +86,15 @@ where
             let available = consumer.occupied_len() & !1;
             taken = consumer.pop_slice(&mut scratch[..wanted.min(available)]);
             shared.frames_played.fetch_add(taken as u64 / 2, Relaxed);
+
+            equalizer.update(&settings.eq);
+            for [left, right] in scratch[..taken].as_chunks_mut::<2>().0 {
+                equalizer.process(left, right);
+                // Boosting can push past full scale; clip rather than wrap.
+                *left = left.clamp(-1.0, 1.0);
+                *right = right.clamp(-1.0, 1.0);
+            }
+
             if taken == 0 && shared.decoder_done.load(Relaxed) {
                 shared.finished.store(true, Relaxed);
             }

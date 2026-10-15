@@ -112,6 +112,37 @@ pub const fn digit(sheet: Sheet, n: u32) -> Sprite {
 pub const MINUS_SIGN: Sprite = s(Numbers, 20, 6, 5, 1);
 pub const MINUS_SIGN_EX: Sprite = s(NumsEx, 99, 0, 9, 13);
 
+// eqmain.bmp
+pub const EQ_BACKGROUND: Sprite = s(EqMain, 0, 0, 275, 116);
+pub const EQ_TITLE_BAR: Sprite = s(EqMain, 0, 149, 275, 14);
+pub const EQ_TITLE_BAR_SELECTED: Sprite = s(EqMain, 0, 134, 275, 14);
+pub const EQ_CLOSE_BUTTON: Sprite = s(EqMain, 0, 116, 9, 9);
+pub const EQ_CLOSE_BUTTON_ACTIVE: Sprite = s(EqMain, 0, 125, 9, 9);
+pub const EQ_ON_BUTTON: Sprite = s(EqMain, 10, 119, 26, 12);
+pub const EQ_ON_BUTTON_DEPRESSED: Sprite = s(EqMain, 128, 119, 26, 12);
+pub const EQ_ON_BUTTON_SELECTED: Sprite = s(EqMain, 69, 119, 26, 12);
+pub const EQ_ON_BUTTON_SELECTED_DEPRESSED: Sprite = s(EqMain, 187, 119, 26, 12);
+pub const EQ_AUTO_BUTTON: Sprite = s(EqMain, 36, 119, 32, 12);
+pub const EQ_AUTO_BUTTON_DEPRESSED: Sprite = s(EqMain, 154, 119, 32, 12);
+pub const EQ_AUTO_BUTTON_SELECTED: Sprite = s(EqMain, 95, 119, 32, 12);
+pub const EQ_AUTO_BUTTON_SELECTED_DEPRESSED: Sprite = s(EqMain, 213, 119, 32, 12);
+pub const EQ_PRESETS_BUTTON: Sprite = s(EqMain, 224, 164, 44, 12);
+pub const EQ_PRESETS_BUTTON_SELECTED: Sprite = s(EqMain, 224, 176, 44, 12);
+pub const EQ_SLIDER_THUMB: Sprite = s(EqMain, 0, 164, 11, 11);
+pub const EQ_SLIDER_THUMB_SELECTED: Sprite = s(EqMain, 0, 176, 11, 11);
+pub const EQ_GRAPH_BACKGROUND: Sprite = s(EqMain, 0, 294, 113, 19);
+pub const EQ_PREAMP_LINE: Sprite = s(EqMain, 0, 314, 113, 1);
+/// A 1x19 column: the curve's color at each height of the graph.
+pub const EQ_GRAPH_LINE_COLORS: Sprite = s(EqMain, 115, 294, 1, 19);
+
+/// eqmain.bmp holds 28 slider backgrounds (14x63 each) in two rows of
+/// 14, spaced 15 px apart across and 65 px down; frame 0 is the lowest
+/// setting.
+pub const EQ_SLIDER_FRAMES: u32 = 28;
+pub const fn eq_slider_background(frame: u32) -> Sprite {
+    s(EqMain, 13 + (frame % 14) * 15, 164 + (frame / 14) * 65, 14, 63)
+}
+
 // text.bmp: a 5x6 pixel font laid out in rows of 31 characters.
 pub const CHAR_WIDTH: u32 = 5;
 pub const CHAR_HEIGHT: u32 = 6;

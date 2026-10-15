@@ -5,6 +5,7 @@
 
 mod app;
 mod audio;
+mod eqf;
 mod playlist;
 mod skin;
 mod ui;

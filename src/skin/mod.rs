@@ -38,10 +38,11 @@ pub enum Sheet {
     Numbers,
     NumsEx,
     Text,
+    EqMain,
 }
 
 impl Sheet {
-    pub const ALL: [Sheet; 12] = [
+    pub const ALL: [Sheet; 13] = [
         Sheet::Main,
         Sheet::Titlebar,
         Sheet::CButtons,
@@ -54,6 +55,7 @@ impl Sheet {
         Sheet::Numbers,
         Sheet::NumsEx,
         Sheet::Text,
+        Sheet::EqMain,
     ];
 
     /// File name inside the skin, lowercased (lookups are case-insensitive).
@@ -71,6 +73,7 @@ impl Sheet {
             Sheet::Numbers => "numbers.bmp",
             Sheet::NumsEx => "nums_ex.bmp",
             Sheet::Text => "text.bmp",
+            Sheet::EqMain => "eqmain.bmp",
         }
     }
 }

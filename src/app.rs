@@ -19,6 +19,7 @@ use crate::playlist::Playlist;
 use crate::skin::Skin;
 use crate::ui::canvas::Canvas;
 use crate::ui::main_window::{self, Control, Hit, MainState, Slider};
+use crate::vis::Visualizer;
 
 /// How often the display updates while something is moving (about 30 fps).
 const FRAME: Duration = Duration::from_millis(33);
@@ -46,6 +47,7 @@ pub struct App {
     graphics: Option<Graphics>,
     player: Player,
     playlist: Playlist,
+    visualizer: Visualizer,
     /// Last known mouse position, in physical (screen) pixels.
     cursor: PhysicalPosition<f64>,
     modifiers: ModifiersState,
@@ -70,6 +72,7 @@ impl App {
             graphics: None,
             player: Player::new(),
             playlist: Playlist::default(),
+            visualizer: Visualizer::new(),
             cursor: PhysicalPosition::new(0.0, 0.0),
             modifiers: ModifiersState::empty(),
             double_size: false,
@@ -221,6 +224,16 @@ impl App {
         state.khz = info.map(|i| (i.sample_rate + 500) / 1000);
         state.stereo = info.is_none_or(|i| i.channels > 1);
 
+        // The visualizer freezes while paused and clears when stopped.
+        match state.play_state {
+            PlayState::Playing => {
+                let player = &self.player;
+                self.visualizer.update(now, |buffer| player.recent_samples(buffer));
+            }
+            PlayState::Paused => {}
+            PlayState::Stopped => self.visualizer.reset(),
+        }
+
         let position = self.player.position();
         state.elapsed = position as u32;
         if state.dragging != Some(Slider::Position) {
@@ -265,6 +278,10 @@ impl App {
         };
 
         main_window::draw(&mut self.canvas, &self.skin, &self.state);
+        if self.state.play_state != PlayState::Stopped {
+            let (x, y) = main_window::VIS_POSITION;
+            self.visualizer.draw(&mut self.canvas, &self.skin, x, y);
+        }
 
         g.surface.resize(width, height).map_err(|e| anyhow::anyhow!("{e}"))?;
         let mut buffer = g.surface.buffer_mut().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -309,6 +326,7 @@ impl App {
                 self.drag_to(x);
             }
             Hit::Time => self.state.time_remaining = !self.state.time_remaining,
+            Hit::Visualizer => self.visualizer.cycle_mode(),
             Hit::Nothing => {}
         }
     }

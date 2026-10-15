@@ -107,7 +107,6 @@ impl Bitmap {
 pub struct Skin {
     sheets: HashMap<Sheet, Bitmap>,
     /// The 24 visualizer colors from `viscolor.txt`, as `0x00RRGGBB`.
-    #[allow(dead_code)] // drawn by the visualizer (phase 3)
     pub viscolor: [u32; 24],
     /// Problems found while loading (missing or unreadable files).
     pub warnings: Vec<String>,

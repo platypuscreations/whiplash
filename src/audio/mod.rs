@@ -19,7 +19,7 @@ mod resample;
 pub use decode::{EXTENSIONS, TrackInfo};
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use std::thread::{self, JoinHandle};
@@ -34,6 +34,8 @@ use resample::Resampler;
 
 /// How much decoded audio is kept ready ahead of the sound card.
 const BUFFER_SECONDS: f64 = 0.2;
+/// How many of the most recently played samples are kept for visualizers.
+const HISTORY_LEN: usize = 4096;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlayState {
@@ -48,6 +50,8 @@ pub struct Settings {
     volume: AtomicU32,
     balance: AtomicU32,
     paused: AtomicBool,
+    /// The sound most recently sent to the sound card, for visualizers.
+    history: Mutex<History>,
 }
 
 impl Settings {
@@ -58,6 +62,35 @@ impl Settings {
         // Squaring makes the slider feel even: hearing is roughly logarithmic.
         let gain = volume * volume;
         (gain * (1.0 - balance).min(1.0), gain * (1.0 + balance).min(1.0))
+    }
+}
+
+/// The last `HISTORY_LEN` samples played, mixed down to mono, before
+/// volume and balance (so visualizers don't shrink when you turn it down).
+pub struct History {
+    samples: Vec<f32>,
+    /// Where the next sample will be written; the oldest sample is here too.
+    next: usize,
+}
+
+impl History {
+    fn new() -> History {
+        History { samples: vec![0.0; HISTORY_LEN], next: 0 }
+    }
+
+    fn push(&mut self, sample: f32) {
+        self.samples[self.next] = sample;
+        self.next = (self.next + 1) % self.samples.len();
+    }
+
+    /// Fills `out` with the most recent samples, oldest first.
+    fn latest(&self, out: &mut [f32]) {
+        let len = self.samples.len();
+        let count = out.len().min(len);
+        let start = self.next + len - count;
+        for (i, slot) in out.iter_mut().take(count).enumerate() {
+            *slot = self.samples[(start + i) % len];
+        }
     }
 }
 
@@ -169,6 +202,7 @@ impl Player {
                 volume: AtomicU32::new(1.0f32.to_bits()),
                 balance: AtomicU32::new(0.0f32.to_bits()),
                 paused: AtomicBool::new(false),
+                history: Mutex::new(History::new()),
             }),
             playback: None,
             info: None,
@@ -233,6 +267,14 @@ impl Player {
         self.playback.as_ref().map_or(0.0, Playback::position)
     }
 
+    /// Copies the most recently played sound into `out` (mono, oldest
+    /// first) and returns its sample rate, or `None` while stopped.
+    pub fn recent_samples(&self, out: &mut [f32]) -> Option<u32> {
+        let rate = self.playback.as_ref()?.output.as_ref()?.sample_rate;
+        self.settings.history.lock().ok()?.latest(out);
+        Some(rate)
+    }
+
     /// True once the current track has played to its end.
     pub fn finished(&self) -> bool {
         self.playback.as_ref().is_some_and(|p| p.shared.finished.load(Relaxed))
@@ -257,6 +299,18 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_returns_the_latest_samples_in_order() {
+        let mut history = History::new();
+        for i in 0..HISTORY_LEN + 10 {
+            history.push(i as f32);
+        }
+        let mut out = [0.0; 3];
+        history.latest(&mut out);
+        let last = (HISTORY_LEN + 9) as f32;
+        assert_eq!(out, [last - 2.0, last - 1.0, last]);
+    }
 
     #[test]
     fn balance_turns_down_the_opposite_side() {

@@ -10,6 +10,7 @@ fastrand = "2.5.0"
 image = { version = "0.25.10", default-features = false, features = ["bmp"] }
 rfd = "0.17.2"
 ringbuf = "0.5.3"
+rustfft = "6.4.1"
 softbuffer = "0.4"
 symphonia = { version = "0.6.1", features = ["all"] }
 winit = "0.30"

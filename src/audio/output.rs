@@ -87,6 +87,13 @@ where
             if taken == 0 && shared.decoder_done.load(Relaxed) {
                 shared.finished.store(true, Relaxed);
             }
+            // Share what we play with the visualizer. `try_lock` never
+            // waits: if the UI is reading right now, skip this batch.
+            if let Ok(mut history) = settings.history.try_lock() {
+                for [left, right] in scratch[..taken].as_chunks::<2>().0 {
+                    history.push((left + right) / 2.0);
+                }
+            }
         }
 
         for (i, frame) in data.chunks_mut(channels).enumerate() {

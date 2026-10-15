@@ -71,6 +71,9 @@ const SLIDERS: [(Slider, i32, i32, i32, i32, i32); 3] = [
 /// The time display; clicking it switches between elapsed and remaining.
 const TIME_AREA: (i32, i32, i32, i32) = (39, 26, 59, 13);
 
+/// Top-left corner of the visualizer (76x16 pixels).
+pub const VIS_POSITION: (i32, i32) = (24, 43);
+
 /// Everything the main window shows that isn't part of the skin.
 pub struct MainState {
     pub focused: bool,
@@ -139,6 +142,7 @@ pub enum Hit {
     Control(Control),
     Slider(Slider),
     Time,
+    Visualizer,
     TitleBar,
     Nothing,
 }
@@ -157,8 +161,11 @@ pub fn hit_test(x: i32, y: i32) -> Hit {
         }
     }
     let (tx, ty, tw, th) = TIME_AREA;
+    let (vx, vy) = VIS_POSITION;
     if inside(tx, ty, tw, th) {
         Hit::Time
+    } else if inside(vx, vy, crate::vis::WIDTH, crate::vis::HEIGHT) {
+        Hit::Visualizer
     } else if inside(0, 0, WIDTH as i32, TITLE_BAR_HEIGHT) {
         Hit::TitleBar
     } else {
@@ -358,6 +365,7 @@ mod tests {
         assert_eq!(hit_test(120, 60), Hit::Slider(Slider::Volume));
         assert_eq!(hit_test(100, 75), Hit::Slider(Slider::Position));
         assert_eq!(hit_test(60, 30), Hit::Time);
+        assert_eq!(hit_test(30, 50), Hit::Visualizer);
         assert_eq!(hit_test(100, 5), Hit::TitleBar);
         assert_eq!(hit_test(100, 50), Hit::Nothing);
         assert_eq!(hit_test(-1, 5), Hit::Nothing);

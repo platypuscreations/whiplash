@@ -29,7 +29,7 @@ impl Canvas {
         }
     }
 
-    fn set(&mut self, x: i32, y: i32, color: u32) {
+    pub fn set(&mut self, x: i32, y: i32, color: u32) {
         if x >= 0 && y >= 0 && (x as u32) < self.width && (y as u32) < self.height {
             self.pixels[(y as u32 * self.width + x as u32) as usize] = color;
         }

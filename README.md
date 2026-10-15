@@ -2,7 +2,7 @@
 
 A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.wsz`).
 
-Status: phase 2 (playback). The main window renders from any classic skin and plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A). The equalizer, playlist window and visualizer come in later phases.
+Status: phase 3 (visualizer). The main window renders from any classic skin, plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A), and shows the classic spectrum analyzer or oscilloscope in the skin's colors. The equalizer and playlist windows come in later phases.
 
 ## Running
 
@@ -19,6 +19,7 @@ cargo run -- --render-to out.bmp path/to/skin.wsz  # save a screenshot without o
 | ← / → | Seek back / forward 5 seconds |
 | ↑ / ↓, mouse wheel | Volume |
 | Click the time | Switch between elapsed and remaining |
+| Click the visualizer | Analyzer → oscilloscope → off |
 | Ctrl+D (Cmd+D) | Double size |
 | Drag the title bar | Move the window |
 
@@ -34,6 +35,6 @@ Skins can be found at <https://skins.webamp.org>. Put any you download in `skins
 
 ## Credits
 
-Sprite coordinates and window layout are taken from [Webamp](https://github.com/captbaritone/webamp) (MIT license) by Jordan Eldredge and contributors.
+Sprite coordinates, window layout and the visualizer's look are taken from [Webamp](https://github.com/captbaritone/webamp) (MIT license) by Jordan Eldredge and contributors.
 
 This project contains no code from Winamp. It is not affiliated with or endorsed by Winamp or Llama Group.

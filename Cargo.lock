@@ -1661,6 +1661,7 @@ dependencies = [
  "image",
  "rfd",
  "ringbuf",
+ "rustfft",
  "softbuffer",
  "symphonia",
  "winit",

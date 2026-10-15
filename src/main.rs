@@ -8,6 +8,7 @@ mod audio;
 mod playlist;
 mod skin;
 mod ui;
+mod vis;
 
 use std::path::{Path, PathBuf};
 

@@ -1,0 +1,21 @@
+[package]
+name = "skinamp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+cpal = "0.18.2"
+fastrand = "2.5.0"
+image = { version = "0.25.10", default-features = false, features = ["bmp"] }
+rfd = "0.17.2"
+ringbuf = "0.5.3"
+softbuffer = "0.4"
+symphonia = { version = "0.6.1", features = ["all"] }
+winit = "0.30"
+zip = { version = "9.0.3", default-features = false, features = ["deflate", "deflate64", "bzip2", "legacy-zip"] }
+
+# Optimize dependencies even in debug builds: unoptimized audio decoding can
+# be too slow to keep up with real-time playback.
+[profile.dev.package."*"]
+opt-level = 2

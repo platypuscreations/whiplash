@@ -1,12 +1,14 @@
 //! skinamp: a music player compatible with classic Winamp 2.x skins.
 //!
-//! Usage: `skinamp [skin.wsz] [music files...]`. Skins and music can also
-//! be dropped onto the window.
+//! Usage: `skinamp [skin.wsz] [music files, folders or playlists...]`. Skins
+//! and music can also be dropped onto the windows.
 
 mod app;
 mod audio;
 mod eqf;
+mod metadata;
 mod playlist;
+mod playlist_file;
 mod skin;
 mod ui;
 mod vis;
@@ -48,8 +50,9 @@ fn main() -> Result<()> {
         None => (Skin::empty(), String::new()),
     };
 
-    let event_loop = EventLoop::new()?;
-    let mut app = app::App::new(skin, skin_name, tracks);
+    // "User events" let other threads wake the window loop.
+    let event_loop = EventLoop::<app::UserEvent>::with_user_event().build()?;
+    let mut app = app::App::new(skin, skin_name, tracks, event_loop.create_proxy());
     event_loop.run_app(&mut app)?;
     Ok(())
 }

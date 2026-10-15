@@ -1,27 +1,37 @@
 //! The application: owns the windows, the skin, the player and the
 //! playlist, and turns mouse and keyboard input into player actions.
+//!
+//! The main window's behavior lives here; the equalizer and playlist
+//! windows have their own files.
+
+mod equalizer;
+mod playlist;
 
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::audio::{self, PlayState, Player};
-use crate::eqf;
+use crate::metadata::MetadataReader;
 use crate::playlist::Playlist;
 use crate::skin::Skin;
 use crate::ui::canvas::Canvas;
-use crate::ui::eq_window::{self, EqControl, EqState};
+use crate::ui::eq_window::{self, EqState};
 use crate::ui::main_window::{self, Control, Hit, MainState, Slider};
+use crate::ui::menu::{self, Menu};
+use crate::ui::playlist_window::{self, PlaylistView};
+use crate::ui::text::Font;
 use crate::vis::Visualizer;
+use playlist::PlDrag;
 
 /// How often the display updates while something is moving (about 30 fps).
 const FRAME: Duration = Duration::from_millis(33);
@@ -34,12 +44,24 @@ const DROP_BURST: Duration = Duration::from_millis(300);
 /// Arrow keys seek by this many seconds.
 const SEEK_STEP: f64 = 5.0;
 
+/// Messages from other threads that wake up the event loop.
+#[derive(Debug)]
+pub enum UserEvent {
+    /// The metadata thread has read some tracks' details.
+    Metadata,
+}
+
 /// Which of the app's windows something refers to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Main,
     Equalizer,
+    Playlist,
+    /// A pop-up text menu.
+    Menu,
 }
+
+const KINDS: [Kind; 4] = [Kind::Main, Kind::Equalizer, Kind::Playlist, Kind::Menu];
 
 /// A window, the surface we draw its pixels onto, and its off-screen
 /// canvas. Windows can only be created once the event loop is running, so
@@ -53,13 +75,24 @@ struct View {
 }
 
 impl View {
-    fn new(event_loop: &ActiveEventLoop, title: &str, width: u32, height: u32, zoom: u32, visible: bool) -> View {
-        let attributes = Window::default_attributes()
+    fn new(
+        event_loop: &ActiveEventLoop,
+        title: &str,
+        width: u32,
+        height: u32,
+        zoom: u32,
+        visible: bool,
+        position: Option<PhysicalPosition<i32>>,
+    ) -> View {
+        let mut attributes = Window::default_attributes()
             .with_title(title)
             .with_decorations(false) // the skin draws its own title bar
             .with_resizable(false)
             .with_visible(visible)
             .with_inner_size(LogicalSize::new(width * zoom, height * zoom));
+        if let Some(position) = position {
+            attributes = attributes.with_position(position);
+        }
         let window = Rc::new(event_loop.create_window(attributes).expect("failed to create window"));
         let context = softbuffer::Context::new(window.clone()).expect("failed to create graphics context");
         let surface = softbuffer::Surface::new(&context, window.clone()).expect("failed to create surface");
@@ -95,10 +128,19 @@ pub struct App {
     skin_name: String,
     state: MainState,
     eq: EqState,
+    pl: PlaylistView,
     main_view: Option<View>,
     eq_view: Option<View>,
+    pl_view: Option<View>,
+    menu_view: Option<View>,
+    /// The open pop-up text menu, if any.
+    menu: Option<Menu>,
+    /// The skin's playlist font, and the font for pop-up menus.
+    pl_font: Option<Font>,
+    menu_font: Option<Font>,
     player: Player,
     playlist: Playlist,
+    metadata: MetadataReader,
     visualizer: Visualizer,
     modifiers: ModifiersState,
     double_size: bool,
@@ -109,20 +151,33 @@ pub struct App {
     next_frame: Instant,
     marquee_scrolled_at: Instant,
     last_drop: Option<Instant>,
+    /// When and on which track the last playlist click was.
+    last_click: Option<(Instant, usize)>,
+    pl_drag: Option<PlDrag>,
 }
 
 impl App {
-    pub fn new(skin: Skin, skin_name: String, tracks: Vec<PathBuf>) -> App {
+    pub fn new(skin: Skin, skin_name: String, tracks: Vec<PathBuf>, proxy: EventLoopProxy<UserEvent>) -> App {
         let now = Instant::now();
+        let pl_font = Font::load(&skin.playlist.font, playlist_window::FONT_PX);
         let mut app = App {
             skin,
             skin_name,
-            state: MainState::default(),
+            state: MainState { playlist_open: true, ..MainState::default() },
             eq: EqState::default(),
+            pl: PlaylistView::default(),
             main_view: None,
             eq_view: None,
+            pl_view: None,
+            menu_view: None,
+            menu: None,
+            pl_font,
+            menu_font: Font::load("Tahoma", menu::FONT_PX),
             player: Player::new(),
             playlist: Playlist::default(),
+            metadata: MetadataReader::new(move || {
+                let _ = proxy.send_event(UserEvent::Metadata);
+            }),
             visualizer: Visualizer::new(),
             modifiers: ModifiersState::empty(),
             double_size: false,
@@ -131,12 +186,13 @@ impl App {
             next_frame: now,
             marquee_scrolled_at: now,
             last_drop: None,
+            last_click: None,
+            pl_drag: None,
         };
         app.player.set_volume(app.state.volume);
         app.apply_equalizer();
         if !tracks.is_empty() {
-            app.playlist.replace(tracks);
-            app.play_current();
+            app.add_tracks(tracks, true);
         }
         app
     }
@@ -145,9 +201,18 @@ impl App {
 
     fn play_current(&mut self) {
         let Some(path) = self.playlist.current().map(Path::to_path_buf) else { return };
-        if let Err(err) = self.player.open(&path) {
-            self.show_message(format!("{}: {err:#}", file_name(&path)));
+        match self.player.open(&path) {
+            Ok(()) => {
+                // Opening the file read its details; show them in the list.
+                if let (Some(info), Some(index)) = (self.player.info(), self.playlist.current_index()) {
+                    let id = self.playlist.entries()[index].id;
+                    self.playlist.set_details(id, info.title.clone(), info.duration);
+                    self.pl.reveal(index, self.playlist.len());
+                }
+            }
+            Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
         }
+        self.redraw(Kind::Playlist);
     }
 
     fn play(&mut self) {
@@ -208,144 +273,13 @@ impl App {
             .add_filter("Audio files", audio::EXTENSIONS)
             .pick_files();
         if let Some(files) = files.filter(|f| !f.is_empty()) {
-            self.playlist.replace(files);
-            self.play_current();
+            self.add_tracks(files, true);
         }
     }
 
     fn show_message(&mut self, text: String) {
         eprintln!("{text}");
         self.message = Some((text, Instant::now()));
-    }
-
-    // ----- Equalizer -----
-
-    /// Sends the equalizer window's settings to the player.
-    fn apply_equalizer(&mut self) {
-        let eq = &self.eq;
-        self.player.set_equalizer(eq.enabled, eq_window::to_db(eq.preamp), eq.bands.map(eq_window::to_db));
-        self.redraw(Kind::Equalizer);
-    }
-
-    fn set_equalizer_open(&mut self, open: bool) {
-        self.state.equalizer_open = open;
-        if let Some(eq) = &self.eq_view {
-            if open {
-                // Open just below the main window. (Phase 6 makes the
-                // windows dock and move together.)
-                if let Some(main) = &self.main_view
-                    && let Ok(position) = main.window.outer_position()
-                {
-                    let below = PhysicalPosition::new(position.x, position.y + main.window.outer_size().height as i32);
-                    eq.window.set_outer_position(below);
-                }
-                eq.window.set_visible(true);
-                eq.window.focus_window();
-            } else {
-                eq.window.set_visible(false);
-            }
-        }
-        self.redraw(Kind::Main);
-    }
-
-    /// The presets button: asks whether to load or save a preset.
-    /// (Phase 6 replaces this with a Winamp-style menu.)
-    fn presets_dialog(&mut self) {
-        const LOAD: &str = "Load…";
-        const SAVE: &str = "Save…";
-        let choice = rfd::MessageDialog::new()
-            .set_title("EQ presets")
-            .set_description("Load a Winamp .eqf preset, or save the current settings as one?")
-            .set_buttons(rfd::MessageButtons::YesNoCancelCustom(LOAD.into(), SAVE.into(), "Cancel".into()))
-            .show();
-        // Some platforms report custom buttons by label, others as Yes/No.
-        match choice {
-            rfd::MessageDialogResult::Yes => self.load_preset(),
-            rfd::MessageDialogResult::No => self.save_preset(),
-            rfd::MessageDialogResult::Custom(label) if label == LOAD => self.load_preset(),
-            rfd::MessageDialogResult::Custom(label) if label == SAVE => self.save_preset(),
-            _ => {}
-        }
-    }
-
-    fn preset_file_dialog() -> rfd::FileDialog {
-        rfd::FileDialog::new().add_filter("Winamp EQ presets", &["eqf", "q1"])
-    }
-
-    fn load_preset(&mut self) {
-        let Some(path) = Self::preset_file_dialog().set_title("Load EQ preset").pick_file() else { return };
-        let loaded = std::fs::read(&path).context("could not read file").and_then(|bytes| eqf::parse(&bytes));
-        match loaded {
-            // A .q1 library holds several presets; use the first.
-            Ok(presets) => {
-                let preset = &presets[0];
-                self.eq.preamp = preset.preamp;
-                self.eq.bands = preset.bands;
-                self.apply_equalizer();
-                self.show_message(format!("loaded eq preset: {}", preset.name));
-            }
-            Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
-        }
-    }
-
-    fn save_preset(&mut self) {
-        let dialog = Self::preset_file_dialog().set_title("Save EQ preset").set_file_name("preset.eqf");
-        let Some(path) = dialog.save_file() else { return };
-        let preset = eqf::Preset { name: file_name(&path), preamp: self.eq.preamp, bands: self.eq.bands };
-        match std::fs::write(&path, eqf::write(&[preset])) {
-            Ok(()) => self.show_message(format!("saved eq preset: {}", file_name(&path))),
-            Err(err) => self.show_message(format!("could not save preset: {err}")),
-        }
-    }
-
-    fn eq_mouse_down(&mut self) {
-        let Some(view) = &self.eq_view else { return };
-        let (x, y) = view.cursor_in_skin(self.zoom());
-        match eq_window::hit_test(x, y) {
-            eq_window::Hit::TitleBar => {
-                let _ = view.window.drag_window();
-            }
-            eq_window::Hit::Control(control) => self.eq.pressed = Some(control),
-            eq_window::Hit::Slider(index) => {
-                self.eq.dragging = Some(index);
-                self.eq_drag_to(y);
-            }
-            eq_window::Hit::Nothing => {}
-        }
-    }
-
-    fn eq_mouse_up(&mut self) {
-        let Some(view) = &self.eq_view else { return };
-        let (x, y) = view.cursor_in_skin(self.zoom());
-        self.eq.dragging = None;
-        if let Some(control) = self.eq.pressed.take()
-            && eq_window::hit_test(x, y) == eq_window::Hit::Control(control)
-        {
-            self.eq_activate(control);
-        }
-    }
-
-    fn eq_drag_to(&mut self, y: i32) {
-        if let Some(index) = self.eq.dragging {
-            self.eq.set_slider(index, eq_window::slider_value(y));
-            self.apply_equalizer();
-        }
-    }
-
-    fn eq_activate(&mut self, control: EqControl) {
-        match control {
-            EqControl::Close => self.set_equalizer_open(false),
-            EqControl::On => self.eq.enabled = !self.eq.enabled,
-            // Winamp's "auto" loads a saved preset for each song; that needs
-            // the preset library planned for phase 6, so for now it only
-            // toggles.
-            EqControl::Auto => self.eq.auto = !self.eq.auto,
-            EqControl::Presets => self.presets_dialog(),
-            EqControl::AllMax => self.eq.bands = [eq_window::SLIDER_MAX; 10],
-            EqControl::AllFlat => self.eq.bands = [eq_window::SLIDER_FLAT; 10],
-            EqControl::AllMin => self.eq.bands = [0.0; 10],
-        }
-        self.apply_equalizer();
     }
 
     // ----- Display -----
@@ -456,11 +390,22 @@ impl App {
         match kind {
             Kind::Main => self.main_view.as_ref(),
             Kind::Equalizer => self.eq_view.as_ref(),
+            Kind::Playlist => self.pl_view.as_ref(),
+            Kind::Menu => self.menu_view.as_ref(),
+        }
+    }
+
+    fn view_mut(&mut self, kind: Kind) -> Option<&mut View> {
+        match kind {
+            Kind::Main => self.main_view.as_mut(),
+            Kind::Equalizer => self.eq_view.as_mut(),
+            Kind::Playlist => self.pl_view.as_mut(),
+            Kind::Menu => self.menu_view.as_mut(),
         }
     }
 
     fn kind_of(&self, id: WindowId) -> Option<Kind> {
-        [Kind::Main, Kind::Equalizer].into_iter().find(|&k| self.view(k).is_some_and(|v| v.window.id() == id))
+        KINDS.into_iter().find(|&k| self.view(k).is_some_and(|v| v.window.id() == id))
     }
 
     fn redraw(&self, kind: Kind) {
@@ -469,10 +414,18 @@ impl App {
         }
     }
 
+    fn redraw_all(&self) {
+        KINDS.into_iter().for_each(|kind| self.redraw(kind));
+    }
+
     fn render(&mut self, kind: Kind) -> Result<()> {
+        if kind == Kind::Main {
+            self.update();
+        }
+        // Each arm borrows only the fields it needs, so the view can be
+        // changed while the skin and state are read.
         match kind {
             Kind::Main => {
-                self.update();
                 let Some(view) = &mut self.main_view else { return Ok(()) };
                 main_window::draw(&mut view.canvas, &self.skin, &self.state);
                 if self.state.play_state != PlayState::Stopped {
@@ -484,6 +437,21 @@ impl App {
             Kind::Equalizer => {
                 let Some(view) = &mut self.eq_view else { return Ok(()) };
                 eq_window::draw(&mut view.canvas, &self.skin, &self.eq);
+                view.present()
+            }
+            Kind::Playlist => {
+                let Some(view) = &mut self.pl_view else { return Ok(()) };
+                if (view.canvas.width, view.canvas.height) != (self.pl.width, self.pl.height) {
+                    view.canvas = Canvas::new(self.pl.width, self.pl.height);
+                }
+                playlist_window::draw(&mut view.canvas, &self.skin, self.pl_font.as_mut(), &self.pl, &self.playlist, &self.state);
+                view.present()
+            }
+            Kind::Menu => {
+                let (Some(view), Some(menu), Some(font)) = (&mut self.menu_view, &self.menu, &mut self.menu_font) else {
+                    return Ok(());
+                };
+                menu.draw(&mut view.canvas, font);
                 view.present()
             }
         }
@@ -566,8 +534,7 @@ impl App {
             Control::Shuffle => self.state.shuffle = !self.state.shuffle,
             Control::Repeat => self.state.repeat = !self.state.repeat,
             Control::Equalizer => self.set_equalizer_open(!self.state.equalizer_open),
-            // The playlist window arrives in phase 5.
-            Control::Playlist => self.state.playlist_open = !self.state.playlist_open,
+            Control::Playlist => self.set_playlist_open(!self.state.playlist_open),
             Control::Options | Control::Shade => {}
         }
     }
@@ -580,6 +547,7 @@ impl App {
             Key::Character(c) => match c.to_ascii_lowercase().as_str() {
                 "d" if self.command_key() => self.toggle_double_size(),
                 "g" if self.modifiers.alt_key() => self.set_equalizer_open(!self.state.equalizer_open),
+                "e" if self.modifiers.alt_key() => self.set_playlist_open(!self.state.playlist_open),
                 "z" => self.previous(),
                 "x" => self.play(),
                 "c" => self.player.pause(),
@@ -596,29 +564,32 @@ impl App {
         }
     }
 
-    fn file_dropped(&mut self, path: PathBuf) {
+    /// Files dropped on a window: skins change the skin; music dropped on
+    /// the playlist is added, and anywhere else replaces the playlist.
+    fn file_dropped(&mut self, path: PathBuf, kind: Kind) {
         if is_skin(&path) {
             match open_skin(&path) {
-                Ok(skin) => {
-                    self.skin = skin;
-                    self.skin_name = file_name(&path);
-                    self.redraw(Kind::Equalizer);
-                }
+                Ok(skin) => self.set_skin(skin, file_name(&path)),
                 Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
             }
             return;
         }
         // A multi-file drop arrives as one event per file: the first
-        // replaces the playlist and starts playing, the rest are added.
+        // decides what happens, the rest are added after it.
         let now = Instant::now();
         let same_drop = self.last_drop.is_some_and(|t| now - t < DROP_BURST);
         self.last_drop = Some(now);
-        if same_drop {
-            self.playlist.append(path);
-        } else {
-            self.playlist.replace(vec![path]);
-            self.play_current();
+        let replace = kind != Kind::Playlist && !same_drop;
+        self.add_tracks(vec![path], replace);
+    }
+
+    fn set_skin(&mut self, skin: Skin, name: String) {
+        if skin.playlist.font != self.skin.playlist.font {
+            self.pl_font = Font::load(&skin.playlist.font, playlist_window::FONT_PX);
         }
+        self.skin = skin;
+        self.skin_name = name;
+        self.redraw_all();
     }
 
     fn toggle_double_size(&mut self) {
@@ -627,6 +598,7 @@ impl App {
         for (view, (width, height)) in [
             (&self.main_view, (main_window::WIDTH, main_window::HEIGHT)),
             (&self.eq_view, (eq_window::WIDTH, eq_window::HEIGHT)),
+            (&self.pl_view, (self.pl.width, self.pl.height)),
         ] {
             if let Some(view) = view {
                 let _ = view.window.request_inner_size(LogicalSize::new(width * zoom, height * zoom));
@@ -635,15 +607,33 @@ impl App {
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.main_view.is_some() {
             return;
         }
         let zoom = self.zoom();
-        self.main_view = Some(View::new(event_loop, "skinamp", main_window::WIDTH, main_window::HEIGHT, zoom, true));
-        // The equalizer window is created hidden and shown on request.
-        self.eq_view = Some(View::new(event_loop, "Equalizer", eq_window::WIDTH, eq_window::HEIGHT, zoom, false));
+        self.main_view =
+            Some(View::new(event_loop, "skinamp", main_window::WIDTH, main_window::HEIGHT, zoom, true, None));
+        // The other windows are created hidden and shown when opened.
+        self.eq_view =
+            Some(View::new(event_loop, "Equalizer", eq_window::WIDTH, eq_window::HEIGHT, zoom, false, None));
+        self.pl_view = Some(View::new(event_loop, "Playlist", self.pl.width, self.pl.height, zoom, false, None));
+        if self.state.playlist_open {
+            self.set_playlist_open(true);
+        }
+    }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: UserEvent) {
+        match event {
+            UserEvent::Metadata => {
+                let results: Vec<_> = self.metadata.results().collect();
+                for details in results {
+                    self.playlist.set_details(details.id, details.title, details.duration);
+                }
+                self.redraw(Kind::Playlist);
+            }
+        }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
@@ -652,6 +642,8 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => match kind {
                 Kind::Main => event_loop.exit(),
                 Kind::Equalizer => self.set_equalizer_open(false),
+                Kind::Playlist => self.set_playlist_open(false),
+                Kind::Menu => self.close_text_menu(),
             },
             WindowEvent::RedrawRequested => {
                 if let Err(err) = self.render(kind) {
@@ -662,21 +654,24 @@ impl ApplicationHandler for App {
             WindowEvent::Focused(focused) => match kind {
                 Kind::Main => self.state.focused = focused,
                 Kind::Equalizer => self.eq.focused = focused,
+                Kind::Playlist => self.pl.focused = focused,
+                // A pop-up menu closes when you click away from it.
+                Kind::Menu if !focused => self.close_text_menu(),
+                Kind::Menu => {}
             },
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::CursorMoved { position, .. } => {
                 let zoom = self.zoom();
-                let Some(view) = (match kind {
-                    Kind::Main => self.main_view.as_mut(),
-                    Kind::Equalizer => self.eq_view.as_mut(),
-                }) else {
-                    return;
-                };
+                let Some(view) = self.view_mut(kind) else { return };
                 view.cursor = position;
                 let (x, y) = view.cursor_in_skin(zoom);
                 match kind {
                     Kind::Main if self.state.dragging.is_some() => self.main_drag_to(x),
                     Kind::Equalizer if self.eq.dragging.is_some() => self.eq_drag_to(y),
+                    Kind::Playlist if self.pl.open_menu.is_some() || self.pl.dragging_scrollbar || self.pl_drag.is_some() => {
+                        self.pl_mouse_moved()
+                    }
+                    Kind::Menu => self.menu_mouse_moved(),
                     _ => return, // nothing changes on screen
                 }
             }
@@ -685,25 +680,39 @@ impl ApplicationHandler for App {
                 (Kind::Main, ElementState::Released) => self.main_mouse_up(event_loop),
                 (Kind::Equalizer, ElementState::Pressed) => self.eq_mouse_down(),
                 (Kind::Equalizer, ElementState::Released) => self.eq_mouse_up(),
+                (Kind::Playlist, ElementState::Pressed) => self.pl_mouse_down(),
+                (Kind::Playlist, ElementState::Released) => self.pl_mouse_up(event_loop),
+                (Kind::Menu, ElementState::Released) => self.menu_mouse_up(),
+                (Kind::Menu, ElementState::Pressed) => {}
             },
             WindowEvent::MouseWheel { delta, .. } => {
                 let steps = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 / 20.0,
                 };
-                self.set_volume(self.state.volume + steps * 0.02);
+                if kind == Kind::Playlist {
+                    // Scrolling down the page shows later tracks.
+                    self.pl_scroll_by(-(steps * 2.0).round() as isize);
+                } else {
+                    self.set_volume(self.state.volume + steps * 0.02);
+                }
             }
-            WindowEvent::DroppedFile(path) => self.file_dropped(path),
+            WindowEvent::DroppedFile(path) => self.file_dropped(path, kind),
             WindowEvent::KeyboardInput { event: KeyEvent { logical_key, state: ElementState::Pressed, .. }, .. } => {
-                self.key_pressed(&logical_key)
+                if logical_key == Key::Named(NamedKey::Escape) {
+                    self.close_text_menu();
+                    self.pl.open_menu = None;
+                } else if kind == Kind::Playlist && self.pl_key_pressed(&logical_key) {
+                    // handled by the playlist
+                } else {
+                    self.key_pressed(&logical_key);
+                }
             }
             WindowEvent::Resized(_) => {}
             _ => return,
         }
-        // Most changes show in the main window; the equalizer window
-        // redraws itself when its own settings change.
-        self.redraw(Kind::Main);
-        self.redraw(kind);
+        // Something changed; windows are small, so just redraw them all.
+        self.redraw_all();
     }
 
     /// Runs when the app has handled all pending events and is about to
@@ -713,6 +722,7 @@ impl ApplicationHandler for App {
             let now = Instant::now();
             if now >= self.next_frame {
                 self.redraw(Kind::Main);
+                self.redraw(Kind::Playlist); // its mini time display
                 self.next_frame = now + FRAME;
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));

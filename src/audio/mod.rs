@@ -192,6 +192,11 @@ fn decode_loop(mut track: Track, mut producer: HeapProd<f32>, shared: Arc<Playba
     track
 }
 
+/// Reads a file's title, length and format without playing it.
+pub fn read_info(path: &Path) -> Result<TrackInfo> {
+    Ok(Track::open(path)?.info)
+}
+
 /// The music player, as seen by the UI.
 pub struct Player {
     settings: Arc<Settings>,

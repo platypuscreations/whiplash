@@ -2,12 +2,12 @@
 
 A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.wsz`).
 
-Status: phase 4 (equalizer). The main window renders from any classic skin, plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A), and shows the classic spectrum analyzer or oscilloscope in the skin's colors. The equalizer window has a 10-band EQ with preamp and loads and saves Winamp `.eqf` presets. The playlist window comes next.
+Status: phase 5 (playlist). The main window renders from any classic skin, plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A), and shows the classic spectrum analyzer or oscilloscope in the skin's colors. The equalizer window has a 10-band EQ with preamp and loads and saves Winamp `.eqf` presets. The playlist window is resizable, uses the skin's colors and font, and reads and writes M3U and PLS playlists.
 
 ## Running
 
 ```sh
-cargo run -- path/to/skin.wsz song.mp3 more.flac   # a skin and some music
+cargo run -- path/to/skin.wsz song.mp3 ~/Music/Album list.m3u   # a skin, music, folders, playlists
 cargo run                                          # then drop skins or music onto the window
 cargo run -- --render-to out.bmp path/to/skin.wsz  # save a screenshot without opening a window
 ```
@@ -22,6 +22,13 @@ cargo run -- --render-to out.bmp path/to/skin.wsz  # save a screenshot without o
 | Click the visualizer | Analyzer → oscilloscope → off |
 | EQ button, Alt+G | Show or hide the equalizer |
 | Presets button | Load or save a Winamp `.eqf` preset |
+| PL button, Alt+E | Show or hide the playlist |
+| Playlist: click / Shift+click / Ctrl+click (Cmd+click) | Select tracks |
+| Playlist: double-click, Enter | Play a track |
+| Playlist: drag selected tracks | Reorder them |
+| Playlist: Delete, Ctrl+A (Cmd+A), ↑ / ↓ | Remove selected, select all, move selection |
+| Playlist: drag the bottom-right corner | Resize |
+| Playlist: ADD / REM / SEL / MISC / LIST OPTS | Add files or folders, remove, select, sort, file info, new/save/load list |
 | +12 / 0 / −12 dB labels | Set every band at once |
 | Ctrl+D (Cmd+D) | Double size |
 | Drag the title bar | Move the window |

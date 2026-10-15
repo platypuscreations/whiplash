@@ -35,6 +35,20 @@ impl Canvas {
         }
     }
 
+    /// Mixes `color` into the pixel at (x, y); `alpha` 255 replaces it.
+    pub fn blend(&mut self, x: i32, y: i32, color: u32, alpha: u8) {
+        if x < 0 || y < 0 || x as u32 >= self.width || y as u32 >= self.height {
+            return;
+        }
+        let pixel = &mut self.pixels[(y as u32 * self.width + x as u32) as usize];
+        let a = alpha as u32;
+        let mix = |shift: u32| {
+            let (under, over) = ((*pixel >> shift) & 0xFF, (color >> shift) & 0xFF);
+            ((under * (255 - a) + over * a + 127) / 255) << shift
+        };
+        *pixel = mix(16) | mix(8) | mix(0);
+    }
+
     /// Copies `sprite` from the skin so its top-left corner lands at (x, y).
     /// Parts outside the canvas or outside a too-small sprite sheet are
     /// skipped. If the skin lacks the sheet entirely, a flat placeholder

@@ -143,6 +143,54 @@ pub const fn eq_slider_background(frame: u32) -> Sprite {
     s(EqMain, 13 + (frame % 14) * 15, 164 + (frame / 14) * 65, 14, 63)
 }
 
+// pledit.bmp: the playlist window's frame, built from tiles.
+pub const PL_TOP_LEFT: Sprite = s(PlEdit, 0, 21, 25, 20);
+pub const PL_TOP_LEFT_SELECTED: Sprite = s(PlEdit, 0, 0, 25, 20);
+pub const PL_TITLE: Sprite = s(PlEdit, 26, 21, 100, 20);
+pub const PL_TITLE_SELECTED: Sprite = s(PlEdit, 26, 0, 100, 20);
+pub const PL_TOP_TILE: Sprite = s(PlEdit, 127, 21, 25, 20);
+pub const PL_TOP_TILE_SELECTED: Sprite = s(PlEdit, 127, 0, 25, 20);
+pub const PL_TOP_RIGHT: Sprite = s(PlEdit, 153, 21, 25, 20);
+pub const PL_TOP_RIGHT_SELECTED: Sprite = s(PlEdit, 153, 0, 25, 20);
+pub const PL_LEFT_TILE: Sprite = s(PlEdit, 0, 42, 12, 29);
+pub const PL_RIGHT_TILE: Sprite = s(PlEdit, 31, 42, 20, 29);
+pub const PL_BOTTOM_LEFT: Sprite = s(PlEdit, 0, 72, 125, 38);
+pub const PL_BOTTOM_RIGHT: Sprite = s(PlEdit, 126, 72, 150, 38);
+pub const PL_BOTTOM_TILE: Sprite = s(PlEdit, 179, 0, 25, 38);
+pub const PL_VISUALIZER_BACKGROUND: Sprite = s(PlEdit, 205, 0, 75, 38);
+pub const PL_SCROLL_HANDLE: Sprite = s(PlEdit, 52, 53, 8, 18);
+pub const PL_SCROLL_HANDLE_SELECTED: Sprite = s(PlEdit, 61, 53, 8, 18);
+pub const PL_CLOSE_SELECTED: Sprite = s(PlEdit, 52, 42, 9, 9);
+
+// The pop-up button menus above the bottom bar: each item is 22x18, with
+// the highlighted version 23 px to the right. The bar is drawn to the left.
+pub const PL_ADD_URL: Sprite = s(PlEdit, 0, 111, 22, 18);
+pub const PL_ADD_DIR: Sprite = s(PlEdit, 0, 130, 22, 18);
+pub const PL_ADD_FILE: Sprite = s(PlEdit, 0, 149, 22, 18);
+pub const PL_REMOVE_ALL: Sprite = s(PlEdit, 54, 111, 22, 18);
+pub const PL_CROP: Sprite = s(PlEdit, 54, 130, 22, 18);
+pub const PL_REMOVE_SELECTED: Sprite = s(PlEdit, 54, 149, 22, 18);
+pub const PL_REMOVE_MISC: Sprite = s(PlEdit, 54, 168, 22, 18);
+pub const PL_INVERT_SELECTION: Sprite = s(PlEdit, 104, 111, 22, 18);
+pub const PL_SELECT_ZERO: Sprite = s(PlEdit, 104, 130, 22, 18);
+pub const PL_SELECT_ALL: Sprite = s(PlEdit, 104, 149, 22, 18);
+pub const PL_SORT_LIST: Sprite = s(PlEdit, 154, 111, 22, 18);
+pub const PL_FILE_INFO: Sprite = s(PlEdit, 154, 130, 22, 18);
+pub const PL_MISC_OPTIONS: Sprite = s(PlEdit, 154, 149, 22, 18);
+pub const PL_NEW_LIST: Sprite = s(PlEdit, 204, 111, 22, 18);
+pub const PL_SAVE_LIST: Sprite = s(PlEdit, 204, 130, 22, 18);
+pub const PL_LOAD_LIST: Sprite = s(PlEdit, 204, 149, 22, 18);
+pub const PL_ADD_MENU_BAR: Sprite = s(PlEdit, 48, 111, 3, 54);
+pub const PL_REMOVE_MENU_BAR: Sprite = s(PlEdit, 100, 111, 3, 72);
+pub const PL_SELECT_MENU_BAR: Sprite = s(PlEdit, 150, 111, 3, 54);
+pub const PL_MISC_MENU_BAR: Sprite = s(PlEdit, 200, 111, 3, 54);
+pub const PL_LIST_MENU_BAR: Sprite = s(PlEdit, 250, 111, 3, 54);
+
+/// The highlighted version of a playlist menu item.
+pub const fn pl_menu_selected(item: Sprite) -> Sprite {
+    s(item.sheet, item.x + 23, item.y, item.w, item.h)
+}
+
 // text.bmp: a 5x6 pixel font laid out in rows of 31 characters.
 pub const CHAR_WIDTH: u32 = 5;
 pub const CHAR_HEIGHT: u32 = 6;

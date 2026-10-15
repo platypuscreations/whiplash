@@ -7,6 +7,8 @@ edition = "2024"
 anyhow = "1.0.104"
 cpal = "0.18.2"
 fastrand = "2.5.0"
+fontdb = "0.24.0"
+fontdue = "0.9.4"
 image = { version = "0.25.10", default-features = false, features = ["bmp"] }
 rfd = "0.17.2"
 ringbuf = "0.5.3"

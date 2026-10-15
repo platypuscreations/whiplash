@@ -7,9 +7,11 @@
 //! skin therefore never fails just because one piece is bad; the problem is
 //! recorded in `Skin::warnings` and that piece is left out.
 
+mod pledit;
 mod sprites;
 mod viscolor;
 
+pub use pledit::PlaylistStyle;
 pub use sprites::*;
 
 use std::collections::HashMap;
@@ -39,10 +41,11 @@ pub enum Sheet {
     NumsEx,
     Text,
     EqMain,
+    PlEdit,
 }
 
 impl Sheet {
-    pub const ALL: [Sheet; 13] = [
+    pub const ALL: [Sheet; 14] = [
         Sheet::Main,
         Sheet::Titlebar,
         Sheet::CButtons,
@@ -56,6 +59,7 @@ impl Sheet {
         Sheet::NumsEx,
         Sheet::Text,
         Sheet::EqMain,
+        Sheet::PlEdit,
     ];
 
     /// File name inside the skin, lowercased (lookups are case-insensitive).
@@ -74,6 +78,7 @@ impl Sheet {
             Sheet::NumsEx => "nums_ex.bmp",
             Sheet::Text => "text.bmp",
             Sheet::EqMain => "eqmain.bmp",
+            Sheet::PlEdit => "pledit.bmp",
         }
     }
 }
@@ -111,6 +116,8 @@ pub struct Skin {
     sheets: HashMap<Sheet, Bitmap>,
     /// The 24 visualizer colors from `viscolor.txt`, as `0x00RRGGBB`.
     pub viscolor: [u32; 24],
+    /// The playlist's colors and font from `pledit.txt`.
+    pub playlist: PlaylistStyle,
     /// Problems found while loading (missing or unreadable files).
     pub warnings: Vec<String>,
 }
@@ -157,7 +164,12 @@ impl Skin {
             None => viscolor::DEFAULT,
         };
 
-        Skin { sheets, viscolor, warnings }
+        let playlist = match files.get("pledit.txt") {
+            Some(bytes) => pledit::parse(&String::from_utf8_lossy(bytes)),
+            None => PlaylistStyle::default(),
+        };
+
+        Skin { sheets, viscolor, playlist, warnings }
     }
 
     pub fn sheet(&self, sheet: Sheet) -> Option<&Bitmap> {

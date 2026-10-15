@@ -34,7 +34,8 @@ const COLOR_BAR_TOP: usize = 2; // 2..=17 run from the top row to the bottom row
 const COLOR_SCOPE: usize = 18; // 18..=22 run from the center line outwards
 const COLOR_PEAK: usize = 23;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Mode {
     Analyzer,
     Oscilloscope,
@@ -138,6 +139,40 @@ impl Visualizer {
         match self.mode {
             Mode::Analyzer => self.draw_analyzer(canvas, colors, x, y),
             Mode::Oscilloscope => self.draw_oscilloscope(canvas, colors, x, y),
+            Mode::Off => {}
+        }
+    }
+
+    /// The tiny version shown in the main window's shade mode: 38 x 5
+    /// pixels, without the dotted background or peaks.
+    pub fn draw_small(&self, canvas: &mut Canvas, skin: &Skin, x: i32, y: i32) {
+        const SMALL_WIDTH: i32 = 38;
+        const SMALL_HEIGHT: i32 = 5;
+        if self.mode == Mode::Off {
+            return;
+        }
+        let colors = &skin.viscolor;
+        canvas.fill_rect(x, y, SMALL_WIDTH as u32, SMALL_HEIGHT as u32, colors[COLOR_BACKGROUND]);
+        match self.mode {
+            Mode::Analyzer => {
+                // Five rows sampled from the full gradient, top to bottom.
+                const ROW_COLORS: [usize; 5] = [4, 8, 11, 14, 17];
+                for (i, &bar) in self.bars.iter().enumerate() {
+                    let height = (bar / spectrum::MAX_HEIGHT * SMALL_HEIGHT as f32).round() as i32;
+                    for row in SMALL_HEIGHT - height..SMALL_HEIGHT {
+                        canvas.set(x + i as i32 * 2, y + row, colors[ROW_COLORS[row as usize]]);
+                    }
+                }
+            }
+            Mode::Oscilloscope => {
+                let recent = &self.samples[self.samples.len() - SCOPE_SAMPLES..];
+                let spacing = SCOPE_SAMPLES / SMALL_WIDTH as usize;
+                for column in 0..SMALL_WIDTH {
+                    let sample = recent[column as usize * spacing];
+                    let row = (2.0 - sample * 5.0).round().clamp(0.0, 4.0) as i32;
+                    canvas.set(x + column, y + row, colors[COLOR_SCOPE]);
+                }
+            }
             Mode::Off => {}
         }
     }

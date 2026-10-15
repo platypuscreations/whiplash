@@ -5,6 +5,7 @@
 
 mod app;
 mod audio;
+mod config;
 mod eqf;
 mod metadata;
 mod playlist;
@@ -43,16 +44,32 @@ fn main() -> Result<()> {
         return render_to_file(skin, out);
     }
 
-    // Any skin on the command line is used; everything else is music.
+    let config = config::Config::load();
+
+    // A skin on the command line is used; otherwise last time's skin.
+    // Everything else on the command line is music.
     let (skins, tracks): (Vec<PathBuf>, Vec<PathBuf>) = args.into_iter().partition(|p| app::is_skin(p));
-    let (skin, skin_name) = match skins.last() {
-        Some(path) => (app::open_skin(path)?, app::file_name(path)),
-        None => (Skin::empty(), String::new()),
+    let (skin, skin_path) = match skins.last() {
+        // Remember the full path, so it still works from another folder.
+        Some(path) => (app::open_skin(path)?, Some(std::fs::canonicalize(path).unwrap_or(path.clone()))),
+        None => match config.skin.as_ref().map(|path| (app::open_skin(path), path)) {
+            Some((Ok(skin), path)) => (skin, Some(path.clone())),
+            Some((Err(err), path)) => {
+                eprintln!("could not load last skin {}: {err:#}", path.display());
+                (Skin::empty(), None)
+            }
+            None => (Skin::empty(), None),
+        },
     };
 
     // "User events" let other threads wake the window loop.
     let event_loop = EventLoop::<app::UserEvent>::with_user_event().build()?;
-    let mut app = app::App::new(skin, skin_name, tracks, event_loop.create_proxy());
+    let proxy = event_loop.create_proxy();
+    let quit = proxy.clone();
+    ctrlc::set_handler(move || {
+        let _ = quit.send_event(app::UserEvent::Quit);
+    })?;
+    let mut app = app::App::new(skin, skin_path, config, tracks, proxy);
     event_loop.run_app(&mut app)?;
     Ok(())
 }

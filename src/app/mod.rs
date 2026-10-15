@@ -5,7 +5,9 @@
 //! windows have their own files.
 
 mod equalizer;
+mod menus;
 mod playlist;
+mod windows;
 
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -18,11 +20,13 @@ use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
-use winit::window::{Window, WindowId};
+use winit::window::{Window, WindowId, WindowLevel};
 
 use crate::audio::{self, PlayState, Player};
+use crate::config::{self, Config, WindowsConfig};
 use crate::metadata::MetadataReader;
 use crate::playlist::Playlist;
+use crate::playlist_file;
 use crate::skin::Skin;
 use crate::ui::canvas::Canvas;
 use crate::ui::eq_window::{self, EqState};
@@ -32,6 +36,7 @@ use crate::ui::playlist_window::{self, PlaylistView};
 use crate::ui::text::Font;
 use crate::vis::Visualizer;
 use playlist::PlDrag;
+use windows::WindowDrag;
 
 /// How often the display updates while something is moving (about 30 fps).
 const FRAME: Duration = Duration::from_millis(33);
@@ -49,6 +54,8 @@ const SEEK_STEP: f64 = 5.0;
 pub enum UserEvent {
     /// The metadata thread has read some tracks' details.
     Metadata,
+    /// Ctrl+C was pressed in the terminal: quit, saving settings.
+    Quit,
 }
 
 /// Which of the app's windows something refers to.
@@ -126,6 +133,8 @@ impl View {
 pub struct App {
     skin: Skin,
     skin_name: String,
+    /// Where the skin came from, to remember it for next time.
+    skin_path: Option<PathBuf>,
     state: MainState,
     eq: EqState,
     pl: PlaylistView,
@@ -144,6 +153,19 @@ pub struct App {
     visualizer: Visualizer,
     modifiers: ModifiersState,
     double_size: bool,
+    always_on_top: bool,
+    /// Window positions and states from the last run, used as the
+    /// windows are first shown.
+    saved_positions: WindowsConfig,
+    /// Per-song equalizer settings for the EQ's "auto" button.
+    auto_presets: std::collections::HashMap<String, [f32; 11]>,
+    window_drag: Option<WindowDrag>,
+    /// When and where the title bar was last clicked, to spot double-clicks.
+    last_title_click: Option<(Kind, Instant)>,
+    /// The skins listed in the open skin browser.
+    skin_choices: Vec<PathBuf>,
+    /// Windows that have been on screen, whose positions are worth saving.
+    shown: Vec<Kind>,
     /// A temporary message for the marquee, and when it was set.
     message: Option<(String, Instant)>,
     /// When the app started; drives the blinking time display.
@@ -157,15 +179,54 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(skin: Skin, skin_name: String, tracks: Vec<PathBuf>, proxy: EventLoopProxy<UserEvent>) -> App {
+    /// Creates the app with the given skin and saved settings. `tracks`
+    /// from the command line replace the saved playlist.
+    pub fn new(
+        skin: Skin,
+        skin_path: Option<PathBuf>,
+        config: Config,
+        tracks: Vec<PathBuf>,
+        proxy: EventLoopProxy<UserEvent>,
+    ) -> App {
         let now = Instant::now();
         let pl_font = Font::load(&skin.playlist.font, playlist_window::FONT_PX);
+        let skin_name = skin_path.as_deref().map(file_name).unwrap_or_default();
+        let windows = config.windows.clone();
+        let mut visualizer = Visualizer::new();
+        visualizer.mode = config.visualizer;
+        let (pl_width, pl_height) = match windows.playlist_size {
+            Some([w, h]) => PlaylistView::snap_size(w as f64, h as f64),
+            None => (playlist_window::MIN_WIDTH, PlaylistView::default().height),
+        };
         let mut app = App {
             skin,
             skin_name,
-            state: MainState { playlist_open: true, ..MainState::default() },
-            eq: EqState::default(),
-            pl: PlaylistView::default(),
+            skin_path,
+            state: MainState {
+                // The windows are opened once they exist (in `resumed`).
+                playlist_open: false,
+                volume: config.volume,
+                balance: config.balance,
+                shuffle: config.shuffle,
+                repeat: config.repeat,
+                time_remaining: config.time_remaining,
+                shaded: windows.main_shaded,
+                ..MainState::default()
+            },
+            eq: EqState {
+                enabled: config.equalizer.enabled,
+                auto: config.equalizer.auto,
+                preamp: config.equalizer.preamp,
+                bands: config.equalizer.bands,
+                shaded: windows.equalizer_shaded,
+                ..EqState::default()
+            },
+            pl: PlaylistView {
+                width: pl_width,
+                height: pl_height,
+                shaded: windows.playlist_shaded,
+                ..PlaylistView::default()
+            },
             main_view: None,
             eq_view: None,
             pl_view: None,
@@ -178,9 +239,16 @@ impl App {
             metadata: MetadataReader::new(move || {
                 let _ = proxy.send_event(UserEvent::Metadata);
             }),
-            visualizer: Visualizer::new(),
+            visualizer,
             modifiers: ModifiersState::empty(),
-            double_size: false,
+            double_size: config.double_size,
+            always_on_top: config.always_on_top,
+            saved_positions: windows,
+            auto_presets: config.equalizer.auto_presets,
+            window_drag: None,
+            shown: vec![Kind::Main],
+            skin_choices: Vec::new(),
+            last_title_click: None,
             message: None,
             clock: now,
             next_frame: now,
@@ -190,11 +258,76 @@ impl App {
             pl_drag: None,
         };
         app.player.set_volume(app.state.volume);
+        app.player.set_balance(app.state.balance);
         app.apply_equalizer();
         if !tracks.is_empty() {
             app.add_tracks(tracks, true);
+        } else {
+            app.restore_playlist(config.playlist_current);
         }
         app
+    }
+
+    /// Reloads the playlist saved last time, without starting playback.
+    fn restore_playlist(&mut self, current: Option<usize>) {
+        let Some(path) = config::playlist_path().filter(|p| p.exists()) else { return };
+        match playlist_file::load(&path) {
+            Ok(tracks) => {
+                let added = self.playlist.replace(tracks);
+                self.metadata.request(added);
+                if let Some(index) = current.filter(|&i| i < self.playlist.len()) {
+                    self.playlist.set_current(index);
+                    self.pl.reveal(index, self.playlist.len());
+                }
+            }
+            Err(err) => eprintln!("could not restore the playlist: {err:#}"),
+        }
+    }
+
+    /// Saves settings, window positions and the playlist for next time.
+    fn save_settings(&self) {
+        let position = |kind| {
+            let view = self.view(kind).filter(|_| self.shown.contains(&kind))?;
+            view.window.outer_position().ok().map(|p| [p.x, p.y])
+        };
+        let config = Config {
+            skin: self.skin_path.clone(),
+            volume: self.state.volume,
+            balance: self.state.balance,
+            shuffle: self.state.shuffle,
+            repeat: self.state.repeat,
+            time_remaining: self.state.time_remaining,
+            double_size: self.double_size,
+            always_on_top: self.always_on_top,
+            visualizer: self.visualizer.mode,
+            playlist_current: self.playlist.current_index(),
+            equalizer: config::EqualizerConfig {
+                enabled: self.eq.enabled,
+                auto: self.eq.auto,
+                preamp: self.eq.preamp,
+                bands: self.eq.bands,
+                auto_presets: self.auto_presets.clone(),
+            },
+            windows: WindowsConfig {
+                main: position(Kind::Main),
+                equalizer: position(Kind::Equalizer).or(self.saved_positions.equalizer),
+                playlist: position(Kind::Playlist).or(self.saved_positions.playlist),
+                equalizer_open: self.state.equalizer_open,
+                playlist_open: self.state.playlist_open,
+                playlist_size: Some([self.pl.width, self.pl.height]),
+                main_shaded: self.state.shaded,
+                equalizer_shaded: self.eq.shaded,
+                playlist_shaded: self.pl.shaded,
+            },
+        };
+        if let Err(err) = config.save() {
+            eprintln!("could not save settings: {err:#}");
+        }
+        if let Some(path) = config::playlist_path()
+            && let Err(err) = playlist_file::save_m3u(&path, self.playlist.entries())
+        {
+            eprintln!("could not save the playlist: {err:#}");
+        }
     }
 
     // ----- Player actions -----
@@ -209,6 +342,7 @@ impl App {
                     self.playlist.set_details(id, info.title.clone(), info.duration);
                     self.pl.reveal(index, self.playlist.len());
                 }
+                self.apply_auto_preset();
             }
             Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
         }
@@ -341,6 +475,8 @@ impl App {
 
         let state = &mut self.state;
         let info = self.player.info();
+        state.always_on_top = self.always_on_top;
+        state.double_size = self.double_size;
         state.play_state = self.player.state();
         state.duration = info.and_then(|i| i.duration).map(|d| d.round() as u32);
         state.kbps = info.and_then(|i| i.kbps);
@@ -427,22 +563,35 @@ impl App {
         match kind {
             Kind::Main => {
                 let Some(view) = &mut self.main_view else { return Ok(()) };
+                let height = if self.state.shaded { main_window::SHADE_HEIGHT } else { main_window::HEIGHT };
+                if view.canvas.height != height {
+                    view.canvas = Canvas::new(main_window::WIDTH, height);
+                }
                 main_window::draw(&mut view.canvas, &self.skin, &self.state);
                 if self.state.play_state != PlayState::Stopped {
-                    let (x, y) = main_window::VIS_POSITION;
-                    self.visualizer.draw(&mut view.canvas, &self.skin, x, y);
+                    if self.state.shaded {
+                        let (x, y) = main_window::SHADE_VIS_POSITION;
+                        self.visualizer.draw_small(&mut view.canvas, &self.skin, x, y);
+                    } else {
+                        let (x, y) = main_window::VIS_POSITION;
+                        self.visualizer.draw(&mut view.canvas, &self.skin, x, y);
+                    }
                 }
                 view.present()
             }
             Kind::Equalizer => {
                 let Some(view) = &mut self.eq_view else { return Ok(()) };
-                eq_window::draw(&mut view.canvas, &self.skin, &self.eq);
+                let height = if self.eq.shaded { eq_window::SHADE_HEIGHT } else { eq_window::HEIGHT };
+                if view.canvas.height != height {
+                    view.canvas = Canvas::new(eq_window::WIDTH, height);
+                }
+                eq_window::draw(&mut view.canvas, &self.skin, &self.eq, self.state.volume, self.state.balance);
                 view.present()
             }
             Kind::Playlist => {
                 let Some(view) = &mut self.pl_view else { return Ok(()) };
-                if (view.canvas.width, view.canvas.height) != (self.pl.width, self.pl.height) {
-                    view.canvas = Canvas::new(self.pl.width, self.pl.height);
+                if (view.canvas.width, view.canvas.height) != (self.pl.width, self.pl.window_height()) {
+                    view.canvas = Canvas::new(self.pl.width, self.pl.window_height());
                 }
                 playlist_window::draw(&mut view.canvas, &self.skin, self.pl_font.as_mut(), &self.pl, &self.playlist, &self.state);
                 view.present()
@@ -470,10 +619,8 @@ impl App {
     fn main_mouse_down(&mut self) {
         let Some(view) = &self.main_view else { return };
         let (x, y) = view.cursor_in_skin(self.zoom());
-        match main_window::hit_test(x, y) {
-            Hit::TitleBar => {
-                let _ = view.window.drag_window();
-            }
+        match main_window::hit_test(x, y, self.state.shaded) {
+            Hit::TitleBar => self.title_bar_pressed(Kind::Main),
             Hit::Control(control) => self.state.pressed = Some(control),
             Hit::Slider(Slider::Position) if self.state.play_state == PlayState::Stopped || self.state.duration.is_none() => {}
             Hit::Slider(slider) => {
@@ -491,7 +638,7 @@ impl App {
         let (x, y) = view.cursor_in_skin(self.zoom());
         // A click only counts if released over the same control.
         if let Some(control) = self.state.pressed.take()
-            && main_window::hit_test(x, y) == Hit::Control(control)
+            && main_window::hit_test(x, y, self.state.shaded) == Hit::Control(control)
         {
             self.activate(control, event_loop);
         }
@@ -508,7 +655,7 @@ impl App {
     /// Moves the slider being dragged to follow the mouse.
     fn main_drag_to(&mut self, x: i32) {
         let Some(slider) = self.state.dragging else { return };
-        let value = main_window::slider_value(slider, x);
+        let value = main_window::slider_value(slider, x, self.state.shaded);
         match slider {
             Slider::Volume => self.set_volume(value),
             Slider::Balance => self.set_balance(value),
@@ -535,17 +682,24 @@ impl App {
             Control::Repeat => self.state.repeat = !self.state.repeat,
             Control::Equalizer => self.set_equalizer_open(!self.state.equalizer_open),
             Control::Playlist => self.set_playlist_open(!self.state.playlist_open),
-            Control::Options | Control::Shade => {}
+            Control::Options | Control::ClutterO => self.open_options_menu(event_loop, Kind::Main),
+            Control::ClutterA => self.set_always_on_top(!self.always_on_top),
+            Control::ClutterI => self.show_file_info(),
+            Control::ClutterD => self.toggle_double_size(),
+            Control::ClutterV => self.open_visualizer_menu(event_loop),
+            Control::Shade => self.toggle_shade(Kind::Main),
         }
     }
 
     // ----- Input for any window -----
 
     /// Winamp's keyboard shortcuts, which work in every window.
-    fn key_pressed(&mut self, key: &Key) {
+    fn key_pressed(&mut self, key: &Key, kind: Kind, event_loop: &ActiveEventLoop) {
         match key {
             Key::Character(c) => match c.to_ascii_lowercase().as_str() {
                 "d" if self.command_key() => self.toggle_double_size(),
+                "t" if self.command_key() => self.set_always_on_top(!self.always_on_top),
+                "s" if self.modifiers.alt_key() => self.open_skin_browser(event_loop, kind),
                 "g" if self.modifiers.alt_key() => self.set_equalizer_open(!self.state.equalizer_open),
                 "e" if self.modifiers.alt_key() => self.set_playlist_open(!self.state.playlist_open),
                 "z" => self.previous(),
@@ -569,7 +723,7 @@ impl App {
     fn file_dropped(&mut self, path: PathBuf, kind: Kind) {
         if is_skin(&path) {
             match open_skin(&path) {
-                Ok(skin) => self.set_skin(skin, file_name(&path)),
+                Ok(skin) => self.set_skin(skin, path),
                 Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
             }
             return;
@@ -583,7 +737,9 @@ impl App {
         self.add_tracks(vec![path], replace);
     }
 
-    fn set_skin(&mut self, skin: Skin, name: String) {
+    fn set_skin(&mut self, skin: Skin, path: PathBuf) {
+        let name = file_name(&path);
+        self.skin_path = Some(std::fs::canonicalize(&path).unwrap_or(path));
         if skin.playlist.font != self.skin.playlist.font {
             self.pl_font = Font::load(&skin.playlist.font, playlist_window::FONT_PX);
         }
@@ -593,15 +749,88 @@ impl App {
     }
 
     fn toggle_double_size(&mut self) {
+        // Windows docked to the main window keep their places relative to
+        // it, scaled by the same factor, so the stack stays together.
+        let main = self.rect(Kind::Main);
+        let docked: Vec<(Kind, windows::Rect)> =
+            self.docked_to(Kind::Main).into_iter().filter_map(|k| self.rect(k).map(|r| (k, r))).collect();
         self.double_size = !self.double_size;
+        let factor = if self.double_size { 2.0 } else { 0.5 };
+        if let Some(main) = main {
+            for (kind, rect) in docked {
+                let x = main.x + ((rect.x - main.x) as f64 * factor).round() as i32;
+                let y = main.y + ((rect.y - main.y) as f64 * factor).round() as i32;
+                if let Some(view) = self.view(kind) {
+                    view.window.set_outer_position(PhysicalPosition::new(x, y));
+                }
+            }
+        }
+        self.apply_window_sizes();
+    }
+
+    /// Sets every window's size from its skin size and the zoom.
+    fn apply_window_sizes(&self) {
         let zoom = self.zoom();
         for (view, (width, height)) in [
-            (&self.main_view, (main_window::WIDTH, main_window::HEIGHT)),
-            (&self.eq_view, (eq_window::WIDTH, eq_window::HEIGHT)),
-            (&self.pl_view, (self.pl.width, self.pl.height)),
+            (&self.main_view, self.skin_size(Kind::Main)),
+            (&self.eq_view, self.skin_size(Kind::Equalizer)),
+            (&self.pl_view, self.skin_size(Kind::Playlist)),
         ] {
             if let Some(view) = view {
                 let _ = view.window.request_inner_size(LogicalSize::new(width * zoom, height * zoom));
+            }
+        }
+    }
+
+    /// A window's size in skin pixels, allowing for shade mode.
+    fn skin_size(&self, kind: Kind) -> (u32, u32) {
+        match kind {
+            Kind::Main if self.state.shaded => (main_window::WIDTH, main_window::SHADE_HEIGHT),
+            Kind::Equalizer if self.eq.shaded => (eq_window::WIDTH, eq_window::SHADE_HEIGHT),
+            Kind::Main => (main_window::WIDTH, main_window::HEIGHT),
+            Kind::Equalizer => (eq_window::WIDTH, eq_window::HEIGHT),
+            Kind::Playlist => (self.pl.width, self.pl.window_height()),
+            Kind::Menu => self.menu_view.as_ref().map_or((1, 1), |v| (v.canvas.width, v.canvas.height)),
+        }
+    }
+
+    /// Switches a window between full size and shade mode (a strip),
+    /// moving windows docked below it so they stay attached.
+    fn toggle_shade(&mut self, kind: Kind) {
+        match kind {
+            Kind::Main => self.state.shaded = !self.state.shaded,
+            Kind::Equalizer => self.eq.shaded = !self.eq.shaded,
+            Kind::Playlist => self.pl.shaded = !self.pl.shaded,
+            Kind::Menu => return,
+        }
+        let (width, height) = self.skin_size(kind);
+        let zoom = self.zoom();
+        let Some(scale) = self.view(kind).map(|v| v.window.scale_factor()) else { return };
+        let size = LogicalSize::new(width * zoom, height * zoom).to_physical(scale);
+        self.resize_keeping_docked(kind, size);
+        self.redraw_all();
+    }
+
+    /// A press on a title bar: double-click toggles shade mode, otherwise
+    /// it starts moving the window.
+    fn title_bar_pressed(&mut self, kind: Kind) {
+        let now = Instant::now();
+        let double = self.last_title_click.is_some_and(|(k, at)| k == kind && now - at < Duration::from_millis(400));
+        if double {
+            self.last_title_click = None;
+            self.toggle_shade(kind);
+        } else {
+            self.last_title_click = Some((kind, now));
+            self.start_window_drag(kind);
+        }
+    }
+
+    fn set_always_on_top(&mut self, on_top: bool) {
+        self.always_on_top = on_top;
+        let level = if on_top { WindowLevel::AlwaysOnTop } else { WindowLevel::Normal };
+        for kind in [Kind::Main, Kind::Equalizer, Kind::Playlist] {
+            if let Some(view) = self.view(kind) {
+                view.window.set_window_level(level);
             }
         }
     }
@@ -613,19 +842,42 @@ impl ApplicationHandler<UserEvent> for App {
             return;
         }
         let zoom = self.zoom();
-        self.main_view =
-            Some(View::new(event_loop, "skinamp", main_window::WIDTH, main_window::HEIGHT, zoom, true, None));
+        let main_position = self.saved_positions.main.map(|[x, y]| PhysicalPosition::new(x, y));
+        let (width, height) = self.skin_size(Kind::Main);
+        self.main_view = Some(View::new(event_loop, "skinamp", width, height, zoom, true, main_position));
+        // A saved position on a screen that's no longer connected is dropped.
+        if let Some([x, y]) = self.saved_positions.main
+            && !self.on_screen(x, y)
+            && let Some(view) = &self.main_view
+        {
+            view.window.set_outer_position(PhysicalPosition::new(100, 100));
+        }
         // The other windows are created hidden and shown when opened.
-        self.eq_view =
-            Some(View::new(event_loop, "Equalizer", eq_window::WIDTH, eq_window::HEIGHT, zoom, false, None));
-        self.pl_view = Some(View::new(event_loop, "Playlist", self.pl.width, self.pl.height, zoom, false, None));
-        if self.state.playlist_open {
+        let (width, height) = self.skin_size(Kind::Equalizer);
+        self.eq_view = Some(View::new(event_loop, "Equalizer", width, height, zoom, false, None));
+        let (width, height) = self.skin_size(Kind::Playlist);
+        self.pl_view = Some(View::new(event_loop, "Playlist", width, height, zoom, false, None));
+        if self.saved_positions.equalizer_open {
+            self.set_equalizer_open(true);
+        }
+        if self.saved_positions.playlist_open {
             self.set_playlist_open(true);
+        }
+        if self.always_on_top {
+            self.set_always_on_top(true);
+        }
+        if let Some(view) = &self.main_view {
+            view.window.focus_window();
         }
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: UserEvent) {
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.save_settings();
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
+            UserEvent::Quit => event_loop.exit(),
             UserEvent::Metadata => {
                 let results: Vec<_> = self.metadata.results().collect();
                 for details in results {
@@ -664,10 +916,15 @@ impl ApplicationHandler<UserEvent> for App {
                 let zoom = self.zoom();
                 let Some(view) = self.view_mut(kind) else { return };
                 view.cursor = position;
+                if self.continue_window_drag(kind) {
+                    return;
+                }
+                let Some(view) = self.view(kind) else { return };
                 let (x, y) = view.cursor_in_skin(zoom);
                 match kind {
                     Kind::Main if self.state.dragging.is_some() => self.main_drag_to(x),
                     Kind::Equalizer if self.eq.dragging.is_some() => self.eq_drag_to(y),
+                    Kind::Equalizer if self.eq.shaded && self.state.dragging.is_some() => self.eq_shade_drag_to(x),
                     Kind::Playlist if self.pl.open_menu.is_some() || self.pl.dragging_scrollbar || self.pl_drag.is_some() => {
                         self.pl_mouse_moved()
                     }
@@ -675,16 +932,27 @@ impl ApplicationHandler<UserEvent> for App {
                     _ => return, // nothing changes on screen
                 }
             }
+            WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. }
+                if self.window_drag.is_some() =>
+            {
+                self.end_window_drag();
+            }
             WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => match (kind, state) {
                 (Kind::Main, ElementState::Pressed) => self.main_mouse_down(),
                 (Kind::Main, ElementState::Released) => self.main_mouse_up(event_loop),
                 (Kind::Equalizer, ElementState::Pressed) => self.eq_mouse_down(),
-                (Kind::Equalizer, ElementState::Released) => self.eq_mouse_up(),
+                (Kind::Equalizer, ElementState::Released) => self.eq_mouse_up(event_loop),
                 (Kind::Playlist, ElementState::Pressed) => self.pl_mouse_down(),
                 (Kind::Playlist, ElementState::Released) => self.pl_mouse_up(event_loop),
-                (Kind::Menu, ElementState::Released) => self.menu_mouse_up(),
+                (Kind::Menu, ElementState::Released) => self.menu_mouse_up(event_loop),
                 (Kind::Menu, ElementState::Pressed) => {}
             },
+            // Right-clicking the main or equalizer window opens the main menu.
+            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. }
+                if matches!(kind, Kind::Main | Kind::Equalizer) =>
+            {
+                self.open_options_menu(event_loop, kind);
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 let steps = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
@@ -705,7 +973,7 @@ impl ApplicationHandler<UserEvent> for App {
                 } else if kind == Kind::Playlist && self.pl_key_pressed(&logical_key) {
                     // handled by the playlist
                 } else {
-                    self.key_pressed(&logical_key);
+                    self.key_pressed(&logical_key, kind, event_loop);
                 }
             }
             WindowEvent::Resized(_) => {}

@@ -3,16 +3,16 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use winit::dpi::{LogicalSize, PhysicalPosition};
+use winit::dpi::LogicalSize;
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key, NamedKey};
 
-use super::{App, Kind, View, file_name};
+use super::{App, Kind, file_name};
 use crate::audio;
 use crate::playlist::Select;
 use crate::playlist_file;
-use crate::ui::menu::{Action, Menu};
-use crate::ui::playlist_window::{self, Hit, MenuItem, PlControl, PlaylistView, format_duration};
+use crate::ui::menu::{Action, Item};
+use crate::ui::playlist_window::{self, Hit, MenuItem, PlControl, PlaylistView};
 
 /// Two clicks on the same track this close together count as a double-click.
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
@@ -51,21 +51,10 @@ impl App {
 
     pub(super) fn set_playlist_open(&mut self, open: bool) {
         self.state.playlist_open = open;
-        if let Some(view) = &self.pl_view {
-            if open {
-                // Open below the lowest of the main and equalizer windows.
-                // (Phase 6 makes the windows dock and move together.)
-                let above = if self.state.equalizer_open { &self.eq_view } else { &self.main_view };
-                if let Some(above) = above
-                    && let Ok(position) = above.window.outer_position()
-                {
-                    let below = PhysicalPosition::new(position.x, position.y + above.window.outer_size().height as i32);
-                    view.window.set_outer_position(below);
-                }
-                view.window.set_visible(true);
-            } else {
-                view.window.set_visible(false);
-            }
+        if open {
+            self.place_and_show(Kind::Playlist);
+        } else if let Some(view) = &self.pl_view {
+            view.window.set_visible(false);
         }
         self.redraw(Kind::Main);
     }
@@ -88,9 +77,7 @@ impl App {
         }
 
         match hit {
-            Hit::TitleBar => {
-                let _ = view.window.drag_window();
-            }
+            Hit::TitleBar => self.title_bar_pressed(Kind::Playlist),
             Hit::Control(control) => self.pl.pressed = Some(control),
             Hit::MenuButton(button) => {
                 self.pl.open_menu = Some(button);
@@ -104,7 +91,7 @@ impl App {
                 self.pl.scroll = self.pl.scroll_for_handle(y, self.playlist.len());
             }
             Hit::Resize => {
-                let (width, height) = (self.pl.width as i32, self.pl.height as i32);
+                let (width, height) = (self.pl.width as i32, self.pl.window_height() as i32);
                 self.pl_drag = Some(PlDrag::Resize { offset_x: width - x, offset_y: height - y });
             }
         }
@@ -160,13 +147,17 @@ impl App {
                 }
             }
             Some(PlDrag::Resize { offset_x, offset_y }) => {
-                let (width, height) = PlaylistView::snap_size((x + offset_x) as f64, (y + offset_y) as f64);
+                let (width, mut height) = PlaylistView::snap_size((x + offset_x) as f64, (y + offset_y) as f64);
+                if self.pl.shaded {
+                    height = self.pl.height; // in shade mode only the width changes
+                }
                 if (width, height) != (self.pl.width, self.pl.height) {
                     self.pl.width = width;
                     self.pl.height = height;
                     self.pl.scroll_to(self.pl.scroll as isize, self.playlist.len());
                     let zoom = self.zoom();
-                    let _ = view.window.request_inner_size(LogicalSize::new(width * zoom, height * zoom));
+                    let size = LogicalSize::new(width * zoom, self.pl.window_height() * zoom);
+                    let _ = view.window.request_inner_size(size);
                 }
             }
             None => {}
@@ -209,6 +200,7 @@ impl App {
     fn pl_activate(&mut self, control: PlControl) {
         match control {
             PlControl::Close => self.set_playlist_open(false),
+            PlControl::Shade => self.toggle_shade(Kind::Playlist),
             PlControl::ScrollUp => self.pl_scroll_by(-1),
             PlControl::ScrollDown => self.pl_scroll_by(1),
             PlControl::Previous => self.previous(),
@@ -235,7 +227,7 @@ impl App {
                 }
             }
             MenuItem::RemoveMisc => {
-                self.open_text_menu(event_loop, Kind::Playlist, &[("Remove missing files", Action::RemoveMissingFiles)])
+                self.open_menu(event_loop, Kind::Playlist, vec![Item::new("Remove missing files", Action::RemoveMissingFiles)])
             }
             MenuItem::RemoveAll | MenuItem::NewList => self.playlist.clear(),
             MenuItem::Crop => self.playlist.crop(),
@@ -243,15 +235,16 @@ impl App {
             MenuItem::InvertSelection => self.playlist.invert_selection(),
             MenuItem::SelectNone => self.playlist.select_all(false),
             MenuItem::SelectAll => self.playlist.select_all(true),
-            MenuItem::SortList => self.open_text_menu(
+            MenuItem::SortList => self.open_menu(
                 event_loop,
                 Kind::Playlist,
-                &[
-                    ("Sort list by title", Action::SortByTitle),
-                    ("Sort list by filename", Action::SortByFileName),
-                    ("Sort list by path and filename", Action::SortByPath),
-                    ("Reverse list", Action::ReverseList),
-                    ("Randomize list", Action::RandomizeList),
+                vec![
+                    Item::new("Sort list by title", Action::SortByTitle),
+                    Item::new("Sort list by filename", Action::SortByFileName),
+                    Item::new("Sort list by path and filename", Action::SortByPath),
+                    Item::separator(),
+                    Item::new("Reverse list", Action::ReverseList),
+                    Item::new("Randomize list", Action::RandomizeList),
                 ],
             ),
             MenuItem::FileInfo => self.show_file_info(),
@@ -281,28 +274,6 @@ impl App {
         }
     }
 
-    /// Shows details of the first selected track (or the playing one).
-    fn show_file_info(&mut self) {
-        let index = self.playlist.first_selected().or(self.playlist.current_index());
-        let Some(entry) = index.map(|i| &self.playlist.entries()[i]) else { return };
-        let mut text = format!("{}\n\n{}", entry.title, entry.path.display());
-        match audio::read_info(&entry.path) {
-            Ok(info) => {
-                text += &format!(
-                    "\n\nLength: {}\nSample rate: {} Hz\nChannels: {}",
-                    info.duration.map_or("unknown".into(), |d| format_duration(d.round() as u64)),
-                    info.sample_rate,
-                    info.channels
-                );
-                if let Some(kbps) = info.kbps {
-                    text += &format!("\nBitrate: {kbps} kbps");
-                }
-            }
-            Err(err) => text += &format!("\n\nCan't be played: {err:#}"),
-        }
-        rfd::MessageDialog::new().set_title("File info").set_description(text).show();
-    }
-
     /// Playlist keys: arrows move the selection, Enter plays, Delete
     /// removes, Ctrl/Cmd+A selects all. Returns false for other keys.
     pub(super) fn pl_key_pressed(&mut self, key: &Key) -> bool {
@@ -330,57 +301,5 @@ impl App {
             _ => return false,
         }
         true
-    }
-
-    // ----- Text menus -----
-
-    /// Opens a pop-up menu at the mouse position in window `over`.
-    fn open_text_menu(&mut self, event_loop: &ActiveEventLoop, over: Kind, items: &[(&str, Action)]) {
-        self.close_text_menu();
-        let menu = Menu::new(items);
-        let Some(font) = self.menu_font.as_mut() else { return };
-        let (width, height) = menu.size(font);
-        let Some(parent) = self.view(over) else { return };
-        let Ok(origin) = parent.window.outer_position() else { return };
-        let position = PhysicalPosition::new(origin.x + parent.cursor.x as i32, origin.y + parent.cursor.y as i32);
-        let view = View::new(event_loop, "menu", width, height, self.zoom(), true, Some(position));
-        view.window.focus_window();
-        self.menu_view = Some(view);
-        self.menu = Some(menu);
-    }
-
-    pub(super) fn close_text_menu(&mut self) {
-        self.menu_view = None; // dropping the window closes it
-        self.menu = None;
-    }
-
-    pub(super) fn menu_mouse_moved(&mut self) {
-        let (Some(view), Some(menu)) = (&self.menu_view, &mut self.menu) else { return };
-        let (_, y) = view.cursor_in_skin(if self.double_size { 2 } else { 1 });
-        menu.hovered = menu.item_at(y);
-    }
-
-    pub(super) fn menu_mouse_up(&mut self) {
-        let action = self.menu.as_ref().and_then(|m| m.hovered.map(|i| m.items[i].1));
-        self.close_text_menu();
-        if let Some(action) = action {
-            self.menu_action(action);
-        }
-    }
-
-    fn menu_action(&mut self, action: Action) {
-        match action {
-            Action::SortByTitle => self.playlist.sort_by_title(),
-            Action::SortByFileName => self.playlist.sort_by_file_name(),
-            Action::SortByPath => self.playlist.sort_by_path(),
-            Action::ReverseList => self.playlist.reverse(),
-            Action::RandomizeList => self.playlist.randomize(),
-            Action::RemoveMissingFiles => {
-                let removed = self.playlist.remove_missing();
-                self.show_message(format!("removed {removed} missing file(s)"));
-            }
-        }
-        self.pl.scroll_to(self.pl.scroll as isize, self.playlist.len());
-        self.redraw(Kind::Playlist);
     }
 }

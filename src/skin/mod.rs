@@ -41,11 +41,13 @@ pub enum Sheet {
     NumsEx,
     Text,
     EqMain,
+    /// The equalizer's shade-mode strip (optional; older skins lack it).
+    EqEx,
     PlEdit,
 }
 
 impl Sheet {
-    pub const ALL: [Sheet; 14] = [
+    pub const ALL: [Sheet; 15] = [
         Sheet::Main,
         Sheet::Titlebar,
         Sheet::CButtons,
@@ -59,6 +61,7 @@ impl Sheet {
         Sheet::NumsEx,
         Sheet::Text,
         Sheet::EqMain,
+        Sheet::EqEx,
         Sheet::PlEdit,
     ];
 
@@ -78,6 +81,7 @@ impl Sheet {
             Sheet::NumsEx => "nums_ex.bmp",
             Sheet::Text => "text.bmp",
             Sheet::EqMain => "eqmain.bmp",
+            Sheet::EqEx => "eq_ex.bmp",
             Sheet::PlEdit => "pledit.bmp",
         }
     }
@@ -153,8 +157,8 @@ impl Skin {
                     }
                     Err(err) => warnings.push(format!("{name}: could not decode ({err})")),
                 },
-                // Plenty of skins leave out nums_ex.bmp because numbers.bmp exists.
-                None if sheet == Sheet::NumsEx => {}
+                // Plenty of skins leave out these newer, optional files.
+                None if matches!(sheet, Sheet::NumsEx | Sheet::EqEx) => {}
                 None => warnings.push(format!("{name}: missing")),
             }
         }

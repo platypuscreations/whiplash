@@ -39,6 +39,21 @@ pub const SHADE_BUTTON_DEPRESSED: Sprite = s(Titlebar, 9, 18, 9, 9);
 pub const CLOSE_BUTTON: Sprite = s(Titlebar, 18, 0, 9, 9);
 pub const CLOSE_BUTTON_DEPRESSED: Sprite = s(Titlebar, 18, 9, 9, 9);
 pub const CLUTTER_BAR: Sprite = s(Titlebar, 304, 0, 8, 43);
+// Shade mode: the main window shrunk to its title bar.
+pub const MAIN_SHADE_BACKGROUND: Sprite = s(Titlebar, 27, 42, 275, 14);
+pub const MAIN_SHADE_BACKGROUND_SELECTED: Sprite = s(Titlebar, 27, 29, 275, 14);
+pub const SHADE_BUTTON_SELECTED: Sprite = s(Titlebar, 0, 27, 9, 9);
+pub const SHADE_BUTTON_SELECTED_DEPRESSED: Sprite = s(Titlebar, 9, 27, 9, 9);
+pub const SHADE_POSITION_BACKGROUND: Sprite = s(Titlebar, 0, 36, 17, 7);
+pub const SHADE_POSITION_THUMB: Sprite = s(Titlebar, 20, 36, 3, 7);
+pub const SHADE_POSITION_THUMB_LEFT: Sprite = s(Titlebar, 17, 36, 3, 7);
+pub const SHADE_POSITION_THUMB_RIGHT: Sprite = s(Titlebar, 23, 36, 3, 7);
+// The clutter bar's buttons, lit (when on or pressed), in their places on it.
+pub const CLUTTER_O_SELECTED: Sprite = s(Titlebar, 304, 47, 8, 8);
+pub const CLUTTER_A_SELECTED: Sprite = s(Titlebar, 312, 55, 8, 7);
+pub const CLUTTER_I_SELECTED: Sprite = s(Titlebar, 320, 62, 8, 7);
+pub const CLUTTER_D_SELECTED: Sprite = s(Titlebar, 328, 69, 8, 8);
+pub const CLUTTER_V_SELECTED: Sprite = s(Titlebar, 336, 77, 8, 7);
 
 // cbuttons.bmp
 pub const PREVIOUS_BUTTON: Sprite = s(CButtons, 0, 0, 23, 18);
@@ -135,6 +150,16 @@ pub const EQ_PREAMP_LINE: Sprite = s(EqMain, 0, 314, 113, 1);
 /// A 1x19 column: the curve's color at each height of the graph.
 pub const EQ_GRAPH_LINE_COLORS: Sprite = s(EqMain, 115, 294, 1, 19);
 
+// eq_ex.bmp: the equalizer in shade mode, with tiny volume and balance
+// sliders whose thumbs change look across the left, middle and right.
+pub const EQ_SHADE_BACKGROUND: Sprite = s(EqEx, 0, 15, 275, 14);
+pub const EQ_SHADE_BACKGROUND_SELECTED: Sprite = s(EqEx, 0, 0, 275, 14);
+pub const EQ_SHADE_VOLUME_THUMBS: [Sprite; 3] = [s(EqEx, 1, 30, 3, 7), s(EqEx, 4, 30, 3, 7), s(EqEx, 7, 30, 3, 7)];
+pub const EQ_SHADE_BALANCE_THUMBS: [Sprite; 3] = [s(EqEx, 11, 30, 3, 7), s(EqEx, 14, 30, 3, 7), s(EqEx, 17, 30, 3, 7)];
+pub const EQ_SHADE_CLOSE_BUTTON: Sprite = s(EqEx, 11, 38, 9, 9);
+pub const EQ_SHADE_CLOSE_BUTTON_ACTIVE: Sprite = s(EqEx, 11, 47, 9, 9);
+pub const EQ_MAXIMIZE_BUTTON_ACTIVE: Sprite = s(EqEx, 1, 38, 9, 9);
+
 /// eqmain.bmp holds 28 slider backgrounds (14x63 each) in two rows of
 /// 14, spaced 15 px apart across and 65 px down; frame 0 is the lowest
 /// setting.
@@ -161,6 +186,13 @@ pub const PL_VISUALIZER_BACKGROUND: Sprite = s(PlEdit, 205, 0, 75, 38);
 pub const PL_SCROLL_HANDLE: Sprite = s(PlEdit, 52, 53, 8, 18);
 pub const PL_SCROLL_HANDLE_SELECTED: Sprite = s(PlEdit, 61, 53, 8, 18);
 pub const PL_CLOSE_SELECTED: Sprite = s(PlEdit, 52, 42, 9, 9);
+pub const PL_COLLAPSE_SELECTED: Sprite = s(PlEdit, 62, 42, 9, 9);
+pub const PL_EXPAND_SELECTED: Sprite = s(PlEdit, 150, 42, 9, 9);
+// The playlist in shade mode: a left end, tiles, and a right end.
+pub const PL_SHADE_LEFT: Sprite = s(PlEdit, 72, 42, 25, 14);
+pub const PL_SHADE_TILE: Sprite = s(PlEdit, 72, 57, 25, 14);
+pub const PL_SHADE_RIGHT: Sprite = s(PlEdit, 99, 57, 50, 14);
+pub const PL_SHADE_RIGHT_SELECTED: Sprite = s(PlEdit, 99, 42, 50, 14);
 
 // The pop-up button menus above the bottom bar: each item is 22x18, with
 // the highlighted version 23 px to the right. The bar is drawn to the left.

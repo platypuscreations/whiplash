@@ -9,6 +9,8 @@ use crate::skin::{self, Sheet, Skin};
 
 pub const WIDTH: u32 = 275;
 pub const HEIGHT: u32 = 116;
+/// Height in shade mode, when the window shrinks to a strip.
+pub const SHADE_HEIGHT: u32 = 14;
 
 /// Height of the title bar, which drags the window.
 const TITLE_BAR_HEIGHT: i32 = 14;
@@ -34,10 +36,17 @@ pub enum Control {
     Repeat,
     Equalizer,
     Playlist,
+    /// The "clutter bar" down the left side: Options, Always on top, file
+    /// Info, Double size, and Visualization.
+    ClutterO,
+    ClutterA,
+    ClutterI,
+    ClutterD,
+    ClutterV,
 }
 
 /// Where each clickable control sits in the window: (control, x, y, w, h).
-const CONTROLS: [(Control, i32, i32, i32, i32); 14] = [
+const CONTROLS: [(Control, i32, i32, i32, i32); 19] = [
     (Control::Options, 6, 3, 9, 9),
     (Control::Minimize, 244, 3, 9, 9),
     (Control::Shade, 254, 3, 9, 9),
@@ -52,6 +61,11 @@ const CONTROLS: [(Control, i32, i32, i32, i32); 14] = [
     (Control::Repeat, 210, 89, 28, 15),
     (Control::Equalizer, 219, 58, 23, 12),
     (Control::Playlist, 242, 58, 23, 12),
+    (Control::ClutterO, 10, 25, 8, 8),
+    (Control::ClutterA, 10, 33, 8, 7),
+    (Control::ClutterI, 10, 40, 8, 7),
+    (Control::ClutterD, 10, 47, 8, 8),
+    (Control::ClutterV, 10, 55, 8, 7),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +82,24 @@ const SLIDERS: [(Slider, i32, i32, i32, i32, i32); 3] = [
     (Slider::Position, 16, 72, 248, 10, 29),
 ];
 
+/// The controls in shade mode: the title bar buttons, tiny transport
+/// buttons, and a tiny seek bar.
+const SHADE_CONTROLS: [(Control, i32, i32, i32, i32); 10] = [
+    (Control::Options, 6, 3, 9, 9),
+    (Control::Minimize, 244, 3, 9, 9),
+    (Control::Shade, 254, 3, 9, 9),
+    (Control::Close, 264, 3, 9, 9),
+    (Control::Previous, 169, 2, 7, 10),
+    (Control::Play, 176, 2, 10, 10),
+    (Control::Pause, 186, 2, 9, 10),
+    (Control::Stop, 195, 2, 9, 10),
+    (Control::Next, 204, 2, 10, 10),
+    (Control::Eject, 215, 2, 10, 10),
+];
+const SHADE_POSITION: (i32, i32, i32, i32, i32) = (226, 4, 17, 7, 3);
+/// Where the tiny visualizer goes in shade mode.
+pub const SHADE_VIS_POSITION: (i32, i32) = (79, 5);
+
 /// The time display; clicking it switches between elapsed and remaining.
 const TIME_AREA: (i32, i32, i32, i32) = (39, 26, 59, 13);
 
@@ -77,6 +109,8 @@ pub const VIS_POSITION: (i32, i32) = (24, 43);
 /// Everything the main window shows that isn't part of the skin.
 pub struct MainState {
     pub focused: bool,
+    /// Shrunk to a strip ("windowshade" mode).
+    pub shaded: bool,
     /// The button currently held down with the mouse, if any.
     pub pressed: Option<Control>,
     /// The slider currently being dragged, if any.
@@ -103,6 +137,8 @@ pub struct MainState {
     pub repeat: bool,
     pub equalizer_open: bool,
     pub playlist_open: bool,
+    pub always_on_top: bool,
+    pub double_size: bool,
     /// The scrolling text display.
     pub marquee: String,
     /// How many characters the marquee has scrolled.
@@ -113,6 +149,7 @@ impl Default for MainState {
     fn default() -> Self {
         MainState {
             focused: true,
+            shaded: false,
             pressed: None,
             dragging: None,
             play_state: PlayState::Stopped,
@@ -130,6 +167,8 @@ impl Default for MainState {
             repeat: false,
             equalizer_open: false,
             playlist_open: false,
+            always_on_top: false,
+            double_size: false,
             marquee: String::new(),
             marquee_offset: 0,
         }
@@ -147,8 +186,23 @@ pub enum Hit {
     Nothing,
 }
 
-pub fn hit_test(x: i32, y: i32) -> Hit {
+pub fn hit_test(x: i32, y: i32, shaded: bool) -> Hit {
     let inside = |rx: i32, ry: i32, w: i32, h: i32| x >= rx && x < rx + w && y >= ry && y < ry + h;
+    if shaded {
+        for (control, cx, cy, w, h) in SHADE_CONTROLS {
+            if inside(cx, cy, w, h) {
+                return Hit::Control(control);
+            }
+        }
+        let (px, py, pw, ph, _) = SHADE_POSITION;
+        return if inside(px, py, pw, ph) {
+            Hit::Slider(Slider::Position)
+        } else if inside(0, 0, WIDTH as i32, SHADE_HEIGHT as i32) {
+            Hit::TitleBar
+        } else {
+            Hit::Nothing
+        };
+    }
 
     for (control, cx, cy, w, h) in CONTROLS {
         if inside(cx, cy, w, h) {
@@ -176,8 +230,14 @@ pub fn hit_test(x: i32, y: i32) -> Hit {
 /// The value a slider takes when the mouse is at window x-coordinate `x`:
 /// the thumb is centered on the mouse. Volume and position are 0.0 to 1.0;
 /// balance is -1.0 to 1.0.
-pub fn slider_value(slider: Slider, x: i32) -> f32 {
-    let (_, sx, _, width, _, thumb) = SLIDERS.iter().find(|s| s.0 == slider).copied().unwrap();
+pub fn slider_value(slider: Slider, x: i32, shaded: bool) -> f32 {
+    let (_, sx, _, width, _, thumb) = match (shaded, slider) {
+        (true, Slider::Position) => {
+            let (px, py, pw, ph, thumb) = SHADE_POSITION;
+            (slider, px, py, pw, ph, thumb)
+        }
+        _ => SLIDERS.iter().find(|s| s.0 == slider).copied().unwrap(),
+    };
     let fraction = ((x - sx - thumb / 2) as f32 / (width - thumb) as f32).clamp(0.0, 1.0);
     match slider {
         Slider::Balance => fraction * 2.0 - 1.0,
@@ -197,6 +257,9 @@ pub fn marquee_scrolls(text: &str) -> bool {
 
 pub fn draw(canvas: &mut Canvas, skin: &Skin, state: &MainState) {
     use skin::*;
+    if state.shaded {
+        return draw_shaded(canvas, skin, state);
+    }
     let pressed = |c| state.pressed == Some(c);
     let pick = |c, up, down| if pressed(c) { down } else { up };
     let dragging = |s| state.dragging == Some(s);
@@ -212,6 +275,19 @@ pub fn draw(canvas: &mut Canvas, skin: &Skin, state: &MainState) {
     canvas.draw(skin, pick(Control::Shade, SHADE_BUTTON, SHADE_BUTTON_DEPRESSED), 254, 3);
     canvas.draw(skin, pick(Control::Close, CLOSE_BUTTON, CLOSE_BUTTON_DEPRESSED), 264, 3);
     canvas.draw(skin, CLUTTER_BAR, 10, 22);
+    // Clutter bar buttons light up while pressed; A and D also while on.
+    let lit = [
+        (Control::ClutterO, CLUTTER_O_SELECTED, 25, false),
+        (Control::ClutterA, CLUTTER_A_SELECTED, 33, state.always_on_top),
+        (Control::ClutterI, CLUTTER_I_SELECTED, 40, false),
+        (Control::ClutterD, CLUTTER_D_SELECTED, 47, state.double_size),
+        (Control::ClutterV, CLUTTER_V_SELECTED, 55, false),
+    ];
+    for (control, sprite, y, on) in lit {
+        if on || pressed(control) {
+            canvas.draw(skin, sprite, 10, y);
+        }
+    }
 
     // Play/pause/stop indicator.
     let indicator = match state.play_state {
@@ -317,6 +393,43 @@ pub fn draw(canvas: &mut Canvas, skin: &Skin, state: &MainState) {
     canvas.draw(skin, repeat, 210, 89);
 }
 
+/// The window in shade mode: one strip with tiny controls, the elapsed
+/// time and a tiny seek bar. (The tiny visualizer is drawn separately.)
+fn draw_shaded(canvas: &mut Canvas, skin: &Skin, state: &MainState) {
+    use skin::*;
+    let pressed = |c| state.pressed == Some(c);
+    let pick = |c, up, down| if pressed(c) { down } else { up };
+    canvas.fill(0);
+    canvas.draw(skin, if state.focused { MAIN_SHADE_BACKGROUND_SELECTED } else { MAIN_SHADE_BACKGROUND }, 0, 0);
+    canvas.draw(skin, pick(Control::Options, OPTIONS_BUTTON, OPTIONS_BUTTON_DEPRESSED), 6, 3);
+    canvas.draw(skin, pick(Control::Minimize, MINIMIZE_BUTTON, MINIMIZE_BUTTON_DEPRESSED), 244, 3);
+    canvas.draw(skin, pick(Control::Shade, SHADE_BUTTON_SELECTED, SHADE_BUTTON_SELECTED_DEPRESSED), 254, 3);
+    canvas.draw(skin, pick(Control::Close, CLOSE_BUTTON, CLOSE_BUTTON_DEPRESSED), 264, 3);
+
+    if state.play_state != PlayState::Stopped {
+        if state.show_time {
+            let (seconds, sign) = match (state.time_remaining, state.duration) {
+                (true, Some(duration)) => (duration.saturating_sub(state.elapsed), '-'),
+                _ => (state.elapsed, ' '),
+            };
+            let text = format!("{sign}{:>2}:{:02}", (seconds / 60).min(99), seconds % 60);
+            draw_text(canvas, skin, &text, 127, 4);
+        }
+        if state.duration.is_some() {
+            let (x, y, width, _, thumb_width) = SHADE_POSITION;
+            canvas.draw(skin, SHADE_POSITION_BACKGROUND, x, y);
+            let position = state.position.clamp(0.0, 1.0);
+            // The thumb looks different at either end of the bar.
+            let thumb = match position {
+                p if p < 1.0 / 3.0 => SHADE_POSITION_THUMB_LEFT,
+                p if p < 2.0 / 3.0 => SHADE_POSITION_THUMB,
+                _ => SHADE_POSITION_THUMB_RIGHT,
+            };
+            canvas.draw(skin, thumb, x + (position * (width - thumb_width) as f32).round() as i32, y);
+        }
+    }
+}
+
 /// Draws "mm:ss" with the skin's digit images, with a minus sign in front
 /// for time remaining. Skins that include nums_ex.bmp use it in preference
 /// to numbers.bmp.
@@ -360,25 +473,29 @@ mod tests {
 
     #[test]
     fn hit_testing() {
-        assert_eq!(hit_test(40, 90), Hit::Control(Control::Play));
-        assert_eq!(hit_test(265, 4), Hit::Control(Control::Close));
-        assert_eq!(hit_test(120, 60), Hit::Slider(Slider::Volume));
-        assert_eq!(hit_test(100, 75), Hit::Slider(Slider::Position));
-        assert_eq!(hit_test(60, 30), Hit::Time);
-        assert_eq!(hit_test(30, 50), Hit::Visualizer);
-        assert_eq!(hit_test(100, 5), Hit::TitleBar);
-        assert_eq!(hit_test(100, 50), Hit::Nothing);
-        assert_eq!(hit_test(-1, 5), Hit::Nothing);
+        assert_eq!(hit_test(180, 5, true), Hit::Control(Control::Play));
+        assert_eq!(hit_test(230, 6, true), Hit::Slider(Slider::Position));
+        assert_eq!(hit_test(100, 5, true), Hit::TitleBar);
+        assert_eq!(hit_test(40, 90, false), Hit::Control(Control::Play));
+        assert_eq!(hit_test(265, 4, false), Hit::Control(Control::Close));
+        assert_eq!(hit_test(120, 60, false), Hit::Slider(Slider::Volume));
+        assert_eq!(hit_test(100, 75, false), Hit::Slider(Slider::Position));
+        assert_eq!(hit_test(60, 30, false), Hit::Time);
+        assert_eq!(hit_test(30, 50, false), Hit::Visualizer);
+        assert_eq!(hit_test(12, 35, false), Hit::Control(Control::ClutterA));
+        assert_eq!(hit_test(100, 5, false), Hit::TitleBar);
+        assert_eq!(hit_test(100, 50, false), Hit::Nothing);
+        assert_eq!(hit_test(-1, 5, false), Hit::Nothing);
     }
 
     #[test]
     fn slider_values_center_the_thumb_on_the_mouse() {
-        assert_eq!(slider_value(Slider::Volume, 107 + 7), 0.0);
-        assert_eq!(slider_value(Slider::Volume, 107 + 68 - 7), 1.0);
-        assert_eq!(slider_value(Slider::Volume, 0), 0.0);
-        assert_eq!(slider_value(Slider::Balance, 177 + 19), 0.0);
-        assert_eq!(slider_value(Slider::Balance, 177), -1.0);
-        assert_eq!(slider_value(Slider::Position, 300), 1.0);
+        assert_eq!(slider_value(Slider::Volume, 107 + 7, false), 0.0);
+        assert_eq!(slider_value(Slider::Volume, 107 + 68 - 7, false), 1.0);
+        assert_eq!(slider_value(Slider::Volume, 0, false), 0.0);
+        assert_eq!(slider_value(Slider::Balance, 177 + 19, false), 0.0);
+        assert_eq!(slider_value(Slider::Balance, 177, false), -1.0);
+        assert_eq!(slider_value(Slider::Position, 300, false), 1.0);
     }
 
     #[test]

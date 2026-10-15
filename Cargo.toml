@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 cpal = "0.18.2"
+ctrlc = "3.5.2"
+directories = "6.0.0"
 fastrand = "2.5.0"
 fontdb = "0.24.0"
 fontdue = "0.9.4"
@@ -13,8 +15,10 @@ image = { version = "0.25.10", default-features = false, features = ["bmp"] }
 rfd = "0.17.2"
 ringbuf = "0.5.3"
 rustfft = "6.4.1"
+serde = { version = "1.0.229", features = ["derive"] }
 softbuffer = "0.4"
 symphonia = { version = "0.6.1", features = ["all"] }
+toml = "1.1.8"
 winit = "0.30"
 zip = { version = "9.0.3", default-features = false, features = ["deflate", "deflate64", "bzip2", "legacy-zip"] }
 

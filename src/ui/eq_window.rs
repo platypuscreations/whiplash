@@ -8,6 +8,7 @@ use crate::skin::{self, Skin};
 
 pub const WIDTH: u32 = 275;
 pub const HEIGHT: u32 = 116;
+pub const SHADE_HEIGHT: u32 = 14;
 
 const TITLE_BAR_HEIGHT: i32 = 14;
 
@@ -18,6 +19,7 @@ pub const SLIDER_FLAT: f32 = 50.0;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EqControl {
     Close,
+    Shade,
     On,
     Auto,
     Presets,
@@ -28,8 +30,9 @@ pub enum EqControl {
 }
 
 /// (control, x, y, w, h)
-const CONTROLS: [(EqControl, i32, i32, i32, i32); 7] = [
+const CONTROLS: [(EqControl, i32, i32, i32, i32); 8] = [
     (EqControl::Close, 264, 3, 9, 9),
+    (EqControl::Shade, 254, 3, 9, 9),
     (EqControl::On, 14, 18, 26, 12),
     (EqControl::Auto, 40, 18, 32, 12),
     (EqControl::Presets, 217, 18, 44, 12),
@@ -55,6 +58,8 @@ const GRAPH_BAND_SPACING: f32 = 12.0;
 /// Everything the equalizer window shows.
 pub struct EqState {
     pub focused: bool,
+    /// Shrunk to a strip ("windowshade" mode).
+    pub shaded: bool,
     pub pressed: Option<EqControl>,
     /// The slider being dragged: 0 is the preamp, 1-10 are the bands.
     pub dragging: Option<usize>,
@@ -68,6 +73,7 @@ impl Default for EqState {
     fn default() -> Self {
         EqState {
             focused: false,
+            shaded: false,
             pressed: None,
             dragging: None,
             enabled: true,
@@ -99,16 +105,45 @@ pub fn to_db(value: f32) -> f32 {
     (value - SLIDER_FLAT) / SLIDER_FLAT * crate::audio::EQ_MAX_DB
 }
 
+/// Converts decibels to a slider position.
+pub fn from_db(db: f32) -> f32 {
+    (SLIDER_FLAT + db / crate::audio::EQ_MAX_DB * SLIDER_FLAT).clamp(0.0, SLIDER_MAX)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hit {
     Control(EqControl),
     Slider(usize),
+    /// The tiny volume and balance sliders in shade mode.
+    ShadeVolume,
+    ShadeBalance,
     TitleBar,
     Nothing,
 }
 
-pub fn hit_test(x: i32, y: i32) -> Hit {
+/// Shade mode's tiny sliders: (x, y, width, height); thumbs are 3 wide.
+const SHADE_VOLUME: (i32, i32, i32, i32) = (61, 4, 97, 6);
+const SHADE_BALANCE: (i32, i32, i32, i32) = (164, 4, 43, 6);
+
+pub fn hit_test(x: i32, y: i32, shaded: bool) -> Hit {
     let inside = |rx: i32, ry: i32, w: i32, h: i32| x >= rx && x < rx + w && y >= ry && y < ry + h;
+    if shaded {
+        let (vx, vy, vw, vh) = SHADE_VOLUME;
+        let (bx, by, bw, bh) = SHADE_BALANCE;
+        return if inside(264, 3, 9, 9) {
+            Hit::Control(EqControl::Close)
+        } else if inside(254, 3, 9, 9) {
+            Hit::Control(EqControl::Shade)
+        } else if inside(vx, vy, vw, vh) {
+            Hit::ShadeVolume
+        } else if inside(bx, by, bw, bh) {
+            Hit::ShadeBalance
+        } else if inside(0, 0, WIDTH as i32, SHADE_HEIGHT as i32) {
+            Hit::TitleBar
+        } else {
+            Hit::Nothing
+        };
+    }
     for (control, cx, cy, w, h) in CONTROLS {
         if inside(cx, cy, w, h) {
             return Hit::Control(control);
@@ -129,9 +164,41 @@ pub fn slider_value(y: i32) -> f32 {
     ((1.0 - from_top / THUMB_TRAVEL) * SLIDER_MAX).clamp(0.0, SLIDER_MAX)
 }
 
-pub fn draw(canvas: &mut Canvas, skin: &Skin, state: &EqState) {
+/// Volume (0 to 1) for the mouse at `x` on shade mode's volume slider.
+pub fn shade_volume_value(x: i32) -> f32 {
+    let (sx, _, width, _) = SHADE_VOLUME;
+    ((x - sx - 1) as f32 / (width - 3) as f32).clamp(0.0, 1.0)
+}
+
+/// Balance (-1 to 1) for the mouse at `x` on shade mode's balance slider.
+pub fn shade_balance_value(x: i32) -> f32 {
+    let (sx, _, width, _) = SHADE_BALANCE;
+    ((x - sx - 1) as f32 / (width - 3) as f32).clamp(0.0, 1.0) * 2.0 - 1.0
+}
+
+/// Draws the window. Shade mode also shows the player's `volume` (0 to 1)
+/// and `balance` (-1 to 1).
+pub fn draw(canvas: &mut Canvas, skin: &Skin, state: &EqState, volume: f32, balance: f32) {
     use skin::*;
     let pressed = |c| state.pressed == Some(c);
+    if state.shaded {
+        canvas.fill(0);
+        canvas.draw(skin, if state.focused { EQ_SHADE_BACKGROUND_SELECTED } else { EQ_SHADE_BACKGROUND }, 0, 0);
+        if pressed(EqControl::Shade) {
+            canvas.draw(skin, EQ_MAXIMIZE_BUTTON_ACTIVE, 254, 3);
+        }
+        let close = if pressed(EqControl::Close) { EQ_SHADE_CLOSE_BUTTON_ACTIVE } else { EQ_SHADE_CLOSE_BUTTON };
+        canvas.draw(skin, close, 264, 3);
+        // The thumbs change look across the left, middle and right thirds.
+        let third = |fraction: f32| ((fraction * 3.0) as usize).min(2);
+        let (vx, vy, vw, _) = SHADE_VOLUME;
+        let volume = volume.clamp(0.0, 1.0);
+        canvas.draw(skin, EQ_SHADE_VOLUME_THUMBS[third(volume)], vx + (volume * (vw - 3) as f32).round() as i32, vy);
+        let (bx, by, bw, _) = SHADE_BALANCE;
+        let balance = (balance.clamp(-1.0, 1.0) + 1.0) / 2.0;
+        canvas.draw(skin, EQ_SHADE_BALANCE_THUMBS[third(balance)], bx + (balance * (bw - 3) as f32).round() as i32, by);
+        return;
+    }
 
     canvas.fill(0);
     canvas.draw(skin, EQ_BACKGROUND, 0, 0);
@@ -239,13 +306,18 @@ mod tests {
 
     #[test]
     fn hit_testing() {
-        assert_eq!(hit_test(20, 20), Hit::Control(EqControl::On));
-        assert_eq!(hit_test(230, 22), Hit::Control(EqControl::Presets));
-        assert_eq!(hit_test(25, 60), Hit::Slider(0));
-        assert_eq!(hit_test(245, 60), Hit::Slider(10));
-        assert_eq!(hit_test(50, 66), Hit::Control(EqControl::AllFlat));
-        assert_eq!(hit_test(100, 5), Hit::TitleBar);
-        assert_eq!(hit_test(100, 110), Hit::Nothing);
+        assert_eq!(hit_test(20, 20, false), Hit::Control(EqControl::On));
+        assert_eq!(hit_test(230, 22, false), Hit::Control(EqControl::Presets));
+        assert_eq!(hit_test(25, 60, false), Hit::Slider(0));
+        assert_eq!(hit_test(245, 60, false), Hit::Slider(10));
+        assert_eq!(hit_test(50, 66, false), Hit::Control(EqControl::AllFlat));
+        assert_eq!(hit_test(100, 5, false), Hit::TitleBar);
+        assert_eq!(hit_test(100, 110, false), Hit::Nothing);
+        assert_eq!(hit_test(258, 5, false), Hit::Control(EqControl::Shade));
+        assert_eq!(hit_test(100, 6, true), Hit::ShadeVolume);
+        assert_eq!(hit_test(180, 6, true), Hit::ShadeBalance);
+        assert_eq!(hit_test(30, 6, true), Hit::TitleBar);
+        assert_eq!(shade_balance_value(164 + 21), 0.0);
     }
 
     #[test]
@@ -261,6 +333,8 @@ mod tests {
         assert_eq!(to_db(SLIDER_MAX), 12.0);
         assert_eq!(to_db(SLIDER_FLAT), 0.0);
         assert_eq!(to_db(0.0), -12.0);
+        assert_eq!(from_db(6.0), 75.0);
+        assert_eq!(from_db(-20.0), 0.0);
     }
 
     #[test]

@@ -1,11 +1,11 @@
 //! The equalizer window's behavior.
 
 use anyhow::Context;
-use winit::dpi::PhysicalPosition;
-
+use winit::event_loop::ActiveEventLoop;
 use super::{App, Kind, file_name};
 use crate::eqf;
 use crate::ui::eq_window::{self, EqControl};
+use crate::ui::main_window::Slider;
 
 impl App {
     /// Sends the equalizer window's settings to the player.
@@ -17,50 +17,19 @@ impl App {
 
     pub(super) fn set_equalizer_open(&mut self, open: bool) {
         self.state.equalizer_open = open;
-        if let Some(eq) = &self.eq_view {
-            if open {
-                // Open just below the main window. (Phase 6 makes the
-                // windows dock and move together.)
-                if let Some(main) = &self.main_view
-                    && let Ok(position) = main.window.outer_position()
-                {
-                    let below = PhysicalPosition::new(position.x, position.y + main.window.outer_size().height as i32);
-                    eq.window.set_outer_position(below);
-                }
-                eq.window.set_visible(true);
-                eq.window.focus_window();
-            } else {
-                eq.window.set_visible(false);
-            }
+        if open {
+            self.place_and_show(Kind::Equalizer);
+        } else if let Some(eq) = &self.eq_view {
+            eq.window.set_visible(false);
         }
         self.redraw(Kind::Main);
-    }
-
-    /// The presets button: asks whether to load or save a preset.
-    /// (Phase 6 replaces this with a Winamp-style menu.)
-    fn presets_dialog(&mut self) {
-        const LOAD: &str = "Load…";
-        const SAVE: &str = "Save…";
-        let choice = rfd::MessageDialog::new()
-            .set_title("EQ presets")
-            .set_description("Load a Winamp .eqf preset, or save the current settings as one?")
-            .set_buttons(rfd::MessageButtons::YesNoCancelCustom(LOAD.into(), SAVE.into(), "Cancel".into()))
-            .show();
-        // Some platforms report custom buttons by label, others as Yes/No.
-        match choice {
-            rfd::MessageDialogResult::Yes => self.load_preset(),
-            rfd::MessageDialogResult::No => self.save_preset(),
-            rfd::MessageDialogResult::Custom(label) if label == LOAD => self.load_preset(),
-            rfd::MessageDialogResult::Custom(label) if label == SAVE => self.save_preset(),
-            _ => {}
-        }
     }
 
     fn preset_file_dialog() -> rfd::FileDialog {
         rfd::FileDialog::new().add_filter("Winamp EQ presets", &["eqf", "q1"])
     }
 
-    fn load_preset(&mut self) {
+    pub(super) fn load_preset(&mut self) {
         let Some(path) = Self::preset_file_dialog().set_title("Load EQ preset").pick_file() else { return };
         let loaded = std::fs::read(&path).context("could not read file").and_then(|bytes| eqf::parse(&bytes));
         match loaded {
@@ -76,7 +45,7 @@ impl App {
         }
     }
 
-    fn save_preset(&mut self) {
+    pub(super) fn save_preset(&mut self) {
         let dialog = Self::preset_file_dialog().set_title("Save EQ preset").set_file_name("preset.eqf");
         let Some(path) = dialog.save_file() else { return };
         let preset = eqf::Preset { name: file_name(&path), preamp: self.eq.preamp, bands: self.eq.bands };
@@ -89,9 +58,17 @@ impl App {
     pub(super) fn eq_mouse_down(&mut self) {
         let Some(view) = &self.eq_view else { return };
         let (x, y) = view.cursor_in_skin(self.zoom());
-        match eq_window::hit_test(x, y) {
-            eq_window::Hit::TitleBar => {
-                let _ = view.window.drag_window();
+        match eq_window::hit_test(x, y, self.eq.shaded) {
+            eq_window::Hit::TitleBar => self.title_bar_pressed(Kind::Equalizer),
+            // The tiny sliders in shade mode set the player's volume and
+            // balance, showing the value in the main window like its own.
+            eq_window::Hit::ShadeVolume => {
+                self.state.dragging = Some(Slider::Volume);
+                self.eq_shade_drag_to(x);
+            }
+            eq_window::Hit::ShadeBalance => {
+                self.state.dragging = Some(Slider::Balance);
+                self.eq_shade_drag_to(x);
             }
             eq_window::Hit::Control(control) => self.eq.pressed = Some(control),
             eq_window::Hit::Slider(index) => {
@@ -102,14 +79,25 @@ impl App {
         }
     }
 
-    pub(super) fn eq_mouse_up(&mut self) {
+    pub(super) fn eq_mouse_up(&mut self, event_loop: &ActiveEventLoop) {
         let Some(view) = &self.eq_view else { return };
         let (x, y) = view.cursor_in_skin(self.zoom());
         self.eq.dragging = None;
+        if self.eq.shaded {
+            self.state.dragging = None;
+        }
         if let Some(control) = self.eq.pressed.take()
-            && eq_window::hit_test(x, y) == eq_window::Hit::Control(control)
+            && eq_window::hit_test(x, y, self.eq.shaded) == eq_window::Hit::Control(control)
         {
-            self.eq_activate(control);
+            self.eq_activate(control, event_loop);
+        }
+    }
+
+    pub(super) fn eq_shade_drag_to(&mut self, x: i32) {
+        match self.state.dragging {
+            Some(Slider::Volume) => self.set_volume(eq_window::shade_volume_value(x)),
+            Some(Slider::Balance) => self.set_balance(eq_window::shade_balance_value(x)),
+            _ => {}
         }
     }
 
@@ -120,15 +108,18 @@ impl App {
         }
     }
 
-    fn eq_activate(&mut self, control: EqControl) {
+    fn eq_activate(&mut self, control: EqControl, event_loop: &ActiveEventLoop) {
         match control {
             EqControl::Close => self.set_equalizer_open(false),
+            EqControl::Shade => self.toggle_shade(Kind::Equalizer),
             EqControl::On => self.eq.enabled = !self.eq.enabled,
-            // Winamp's "auto" loads a saved preset for each song; that needs
-            // the preset library planned for phase 6, so for now it only
-            // toggles.
-            EqControl::Auto => self.eq.auto = !self.eq.auto,
-            EqControl::Presets => self.presets_dialog(),
+            // "Auto" applies a song's own preset (saved from the presets
+            // menu) whenever that song starts.
+            EqControl::Auto => {
+                self.eq.auto = !self.eq.auto;
+                self.apply_auto_preset();
+            }
+            EqControl::Presets => self.open_presets_menu(event_loop),
             EqControl::AllMax => self.eq.bands = [eq_window::SLIDER_MAX; 10],
             EqControl::AllFlat => self.eq.bands = [eq_window::SLIDER_FLAT; 10],
             EqControl::AllMin => self.eq.bands = [0.0; 10],

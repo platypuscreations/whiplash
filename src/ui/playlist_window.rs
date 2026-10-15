@@ -15,6 +15,7 @@ pub const MIN_WIDTH: u32 = 275;
 pub const MIN_HEIGHT: u32 = 116;
 pub const WIDTH_STEP: u32 = 25;
 pub const HEIGHT_STEP: u32 = 29;
+pub const SHADE_HEIGHT: u32 = 14;
 
 /// Size of the playlist font, in pixels.
 pub const FONT_PX: f32 = 9.0;
@@ -32,6 +33,7 @@ const SCROLL_HANDLE_HEIGHT: i32 = 18;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlControl {
     Close,
+    Shade,
     ScrollUp,
     ScrollDown,
     Previous,
@@ -122,7 +124,10 @@ impl MenuButton {
 /// The playlist window's own state (the tracks live in `Playlist`).
 pub struct PlaylistView {
     pub width: u32,
+    /// Height when not shaded.
     pub height: u32,
+    /// Shrunk to a strip ("windowshade" mode).
+    pub shaded: bool,
     /// Index of the first visible track.
     pub scroll: usize,
     pub focused: bool,
@@ -138,6 +143,7 @@ impl Default for PlaylistView {
         PlaylistView {
             width: MIN_WIDTH,
             height: MIN_HEIGHT + 2 * HEIGHT_STEP,
+            shaded: false,
             scroll: 0,
             focused: false,
             pressed: None,
@@ -151,6 +157,11 @@ impl Default for PlaylistView {
 impl PlaylistView {
     fn size(&self) -> (i32, i32) {
         (self.width as i32, self.height as i32)
+    }
+
+    /// The window's current height, allowing for shade mode.
+    pub fn window_height(&self) -> u32 {
+        if self.shaded { SHADE_HEIGHT } else { self.height }
     }
 
     /// How many tracks fit in the window.
@@ -233,6 +244,19 @@ pub enum Hit {
 pub fn hit_test(view: &PlaylistView, track_count: usize, x: i32, y: i32) -> Hit {
     let (width, height) = view.size();
     let inside = |rx: i32, ry: i32, w: i32, h: i32| x >= rx && x < rx + w && y >= ry && y < ry + h;
+    if view.shaded {
+        return if inside(width - 11, 3, 9, 9) {
+            Hit::Control(PlControl::Close)
+        } else if inside(width - 21, 3, 9, 9) {
+            Hit::Control(PlControl::Shade)
+        } else if inside(width - 29, 3, 8, 9) {
+            Hit::Resize
+        } else if inside(0, 0, width, SHADE_HEIGHT as i32) {
+            Hit::TitleBar
+        } else {
+            Hit::Nothing
+        };
+    }
 
     // An open menu covers what's beneath it.
     for (item, _, ix, iy) in view.menu_layout() {
@@ -244,6 +268,7 @@ pub fn hit_test(view: &PlaylistView, track_count: usize, x: i32, y: i32) -> Hit 
     let (right_x, bottom_y) = (width - 150, height - BOTTOM);
     let controls = [
         (PlControl::Close, width - 11, 3, 9, 9),
+        (PlControl::Shade, width - 21, 3, 9, 9),
         (PlControl::ScrollUp, width - 15, bottom_y + 2, 8, 5),
         (PlControl::ScrollDown, width - 15, bottom_y + 8, 8, 5),
         (PlControl::Previous, right_x + 4, bottom_y + 22, 8, 10),
@@ -291,6 +316,9 @@ pub fn draw(
     main: &MainState,
 ) {
     use skin::*;
+    if view.shaded {
+        return draw_shaded(canvas, skin, view, playlist);
+    }
     let (width, height) = view.size();
     let focused = view.focused;
     let pick = |normal, selected| if focused { selected } else { normal };
@@ -305,6 +333,9 @@ pub fn draw(
     canvas.draw(skin, pick(PL_TOP_RIGHT, PL_TOP_RIGHT_SELECTED), width - 25, 0);
     if view.pressed == Some(PlControl::Close) {
         canvas.draw(skin, PL_CLOSE_SELECTED, width - 11, 3);
+    }
+    if view.pressed == Some(PlControl::Shade) {
+        canvas.draw(skin, PL_COLLAPSE_SELECTED, width - 21, 3);
     }
 
     // Sides.
@@ -369,6 +400,44 @@ fn draw_tracks(canvas: &mut Canvas, skin: &Skin, font: Option<&mut Font>, view: 
         font.draw(canvas, &length, length_x, top, ROW_HEIGHT, color, (left, right));
         let title = font.fit(&format!("{}. {}", index + 1, entry.title), length_x - 6 - (left + 2));
         font.draw(canvas, &title, left + 2, top, ROW_HEIGHT, color, (left, length_x - 2));
+    }
+}
+
+/// Shade mode: one strip showing the current track and its length.
+fn draw_shaded(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: &Playlist) {
+    use skin::*;
+    let width = view.width as i32;
+    canvas.fill(0);
+    canvas.draw(skin, PL_SHADE_LEFT, 0, 0);
+    for x in (25..width - 50).step_by(25) {
+        canvas.draw(skin, PL_SHADE_TILE, x, 0);
+    }
+    canvas.draw(skin, if view.focused { PL_SHADE_RIGHT_SELECTED } else { PL_SHADE_RIGHT }, width - 50, 0);
+    if view.pressed == Some(PlControl::Shade) {
+        canvas.draw(skin, PL_EXPAND_SELECTED, width - 21, 3);
+    }
+    if view.pressed == Some(PlControl::Close) {
+        canvas.draw(skin, PL_CLOSE_SELECTED, width - 11, 3);
+    }
+
+    let current = playlist.current_index().map(|i| (i, &playlist.entries()[i]));
+    let (title, time) = match current {
+        Some((i, entry)) => {
+            (format!("{}. {}", i + 1, entry.title), entry.duration.map(|d| format_duration(d.round() as u64)))
+        }
+        None => ("[no file]".to_string(), None),
+    };
+    // Room for the title grows with the window, 5 pixels per character.
+    let max_chars = ((205 + width - MIN_WIDTH as i32) / skin::CHAR_WIDTH as i32) as usize;
+    let title = if title.chars().count() > max_chars {
+        title.chars().take(max_chars - 1).chain(std::iter::once('…')).collect()
+    } else {
+        title
+    };
+    draw_bitmap_text(canvas, skin, &title, 5, 4, max_chars);
+    if let Some(time) = time {
+        let x = width - 30 - time.len() as i32 * skin::CHAR_WIDTH as i32;
+        draw_bitmap_text(canvas, skin, &time, x, 4, 8);
     }
 }
 
@@ -445,6 +514,11 @@ mod tests {
         assert_eq!(hit_test(&view, 10, 295, 5), Hit::Control(PlControl::Close));
         assert_eq!(hit_test(&view, 10, 295, view.height as i32 - 3), Hit::Resize);
         assert_eq!(hit_test(&view, 10, 100, 5), Hit::TitleBar);
+        assert_eq!(hit_test(&view, 10, 282, 5), Hit::Control(PlControl::Shade));
+        let shaded = PlaylistView { shaded: true, ..PlaylistView::default() };
+        assert_eq!(hit_test(&shaded, 10, 268, 5), Hit::Control(PlControl::Close));
+        assert_eq!(hit_test(&shaded, 10, 250, 5), Hit::Resize);
+        assert_eq!(hit_test(&shaded, 10, 50, 5), Hit::TitleBar);
 
         // The open "remove" menu stacks four choices above its button.
         view.open_menu = Some(MenuButton::Remove);

@@ -55,6 +55,23 @@ pub fn write(presets: &[Preset]) -> Vec<u8> {
     bytes
 }
 
+/// Presets offered in the equalizer's presets menu: name, preamp in dB,
+/// then the ten bands in dB. These are skinamp's own starting points (not
+/// copies of Winamp's list). Big boosts lower the preamp to avoid clipping.
+pub const BUILT_IN: &[(&str, f32, [f32; 10])] = &[
+    ("Flat", 0.0, [0.0; 10]),
+    ("Rock", -2.0, [5.0, 3.0, -2.0, -4.0, -1.0, 2.0, 5.0, 6.0, 6.0, 6.0]),
+    ("Pop", 0.0, [-1.0, 2.0, 4.0, 5.0, 3.0, 0.0, -1.0, -1.0, -1.0, -1.0]),
+    ("Jazz", 0.0, [3.0, 2.0, 0.0, 2.0, -2.0, -2.0, 0.0, 2.0, 3.0, 4.0]),
+    ("Classical", 0.0, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -4.0, -4.0, -4.0, -6.0]),
+    ("Dance", -2.0, [6.0, 4.0, 1.0, 0.0, 0.0, -3.0, -4.0, -4.0, 0.0, 0.0]),
+    ("Vocal", 0.0, [-2.0, -3.0, -2.0, 1.0, 4.0, 4.0, 3.0, 1.0, 0.0, -2.0]),
+    ("Loudness", -3.0, [5.0, 4.0, 0.0, 0.0, -2.0, 0.0, -1.0, 3.0, 5.0, 5.0]),
+    ("Bass boost", -4.0, [7.0, 6.0, 4.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+    ("Treble boost", -4.0, [0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 4.0, 6.0, 7.0, 8.0]),
+    ("Bass and treble", -4.0, [6.0, 5.0, 2.0, 0.0, -2.0, 0.0, 2.0, 5.0, 6.0, 7.0]),
+];
+
 fn byte_to_slider(byte: u8) -> f32 {
     let level = (64 - byte.min(63) as i32) as f32; // 1..=64
     (level - 1.0) / 63.0 * 100.0

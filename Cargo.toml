@@ -64,6 +64,8 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 # Asking the X server where the mouse pointer is and to raise windows, on
 # Linux (see src/app/desktop.rs). The version winit uses.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+async-channel = "2.5"
+mpris-server = "0.10.0"
 x11rb = "0.13.2"
 
 # A locally fixed copy of the projectm crate (see vendor/projectm/PATCHES.md).

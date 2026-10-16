@@ -1,0 +1,205 @@
+//! The system's media controls: the keyboard's play/pause, next and
+//! previous keys, and the desktop's "now playing" display.
+//!
+//! The keys don't reach the app as ordinary key presses. The desktop
+//! catches them and passes them to the music player it thinks is current:
+//! on Linux over D-Bus, by the MPRIS standard (see `mpris.rs`). The same
+//! connection tells the desktop what's playing, which shows in the
+//! Plasma media widget, GNOME's notifications and `playerctl`.
+//!
+//! None of this is needed for playing music, so it never gets in the way:
+//! if the desktop can't be reached, the controls just don't work, and the
+//! app never waits on them.
+
+#[cfg(all(unix, not(target_os = "macos")))]
+mod mpris;
+
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+use winit::event_loop::EventLoopProxy;
+
+use super::UserEvent;
+use crate::audio::{PlayState, Player};
+
+/// What the desktop asked the player to do.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(target_os = "macos", allow(dead_code))] // until macOS has its media controls
+pub enum Command {
+    Play,
+    Pause,
+    PlayPause,
+    Stop,
+    Next,
+    Previous,
+    /// Moves this many seconds forward (or back, if negative).
+    Seek(f64),
+    /// Jumps to this many seconds into the track.
+    SetPosition(f64),
+    SetShuffle(bool),
+    SetRepeat(bool),
+}
+
+/// What the desktop is told about the current track.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Track {
+    pub path: PathBuf,
+    /// The tagged title, or the file name.
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration: Option<f64>,
+}
+
+/// News for the desktop, sent as things change.
+#[derive(Clone, Debug, PartialEq)]
+enum Update {
+    /// A new track, or none.
+    Track(Option<Track>),
+    Status(PlayState),
+    /// Where playback is, sent now and then so the desktop's clock stays right.
+    Position(f64),
+    /// Playback jumped to a new place.
+    Seeked(f64),
+    Shuffle(bool),
+    Repeat(bool),
+}
+
+/// How often the position is passed on while playing. The desktop counts
+/// time on by itself between updates.
+const POSITION_EVERY: Duration = Duration::from_secs(1);
+
+/// A jump bigger than this between updates counts as a seek.
+const SEEK_THRESHOLD: f64 = 1.5;
+
+/// The app's side of the media controls.
+pub struct MediaControls {
+    backend: Option<Backend>,
+    /// What the desktop was last told, to send only what changed.
+    track: Option<PathBuf>,
+    status: PlayState,
+    position: f64,
+    position_sent: Option<Instant>,
+    shuffle: Option<bool>,
+    repeat: Option<bool>,
+}
+
+impl MediaControls {
+    /// Starts talking to the desktop. Commands arrive as `UserEvent::Media`.
+    pub fn connect(proxy: EventLoopProxy<UserEvent>) -> MediaControls {
+        MediaControls {
+            backend: Backend::connect(proxy),
+            track: None,
+            status: PlayState::Stopped,
+            position: 0.0,
+            position_sent: None,
+            shuffle: None,
+            repeat: None,
+        }
+    }
+
+    /// Tells the desktop what changed since last time. Cheap enough to call
+    /// on every pass of the event loop.
+    pub fn sync(&mut self, player: &Player, shuffle: bool, repeat: bool) {
+        let Some(backend) = &self.backend else { return };
+        let info = player.info();
+        let status = if info.is_some() { player.state() } else { PlayState::Stopped };
+        let mut updates = Vec::new();
+
+        if self.shuffle != Some(shuffle) {
+            self.shuffle = Some(shuffle);
+            updates.push(Update::Shuffle(shuffle));
+        }
+        if self.repeat != Some(repeat) {
+            self.repeat = Some(repeat);
+            updates.push(Update::Repeat(repeat));
+        }
+
+        let path = info.map(|i| &i.path);
+        if path != self.track.as_ref() {
+            self.track = path.cloned();
+            updates.push(Update::Track(info.map(|info| Track {
+                path: info.path.clone(),
+                title: info.tags.title.clone().unwrap_or_else(|| super::file_name(&info.path)),
+                artist: info.tags.artist.clone(),
+                album: info.tags.album.clone(),
+                duration: info.duration,
+            })));
+            self.position_sent = None;
+        }
+        if status != self.status {
+            self.status = status;
+            self.position_sent = None;
+            updates.push(Update::Status(status));
+        }
+
+        let position = if status == PlayState::Stopped { 0.0 } else { player.position() };
+        let now = Instant::now();
+        match self.position_sent {
+            None => updates.push(Update::Position(position)),
+            Some(sent) => {
+                let expected = match status {
+                    PlayState::Playing => self.position + (now - sent).as_secs_f64(),
+                    _ => self.position,
+                };
+                if (position - expected).abs() > SEEK_THRESHOLD {
+                    updates.push(Update::Seeked(position));
+                } else if status == PlayState::Playing && now - sent >= POSITION_EVERY {
+                    updates.push(Update::Position(position));
+                } else {
+                    return send(backend, updates);
+                }
+            }
+        }
+        self.position = position;
+        self.position_sent = Some(now);
+        send(backend, updates);
+    }
+}
+
+fn send(backend: &Backend, updates: Vec<Update>) {
+    for update in updates {
+        backend.send(update);
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+use mpris::Backend;
+
+/// No media controls on this system yet.
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+struct Backend;
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+impl Backend {
+    fn connect(_proxy: EventLoopProxy<UserEvent>) -> Option<Backend> {
+        None
+    }
+
+    fn send(&self, _update: Update) {}
+}
+
+/// A file's path as a `file://` address, as the desktop expects.
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
+fn file_url(path: &std::path::Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let mut url = String::from("file://");
+    for &byte in path.as_os_str().as_bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {
+            url.push(byte as char);
+        } else {
+            url.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    url
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_urls_escape_what_they_must() {
+        assert_eq!(file_url(std::path::Path::new("/music/a b/Ünder #1.mp3")), "file:///music/a%20b/%C3%9Cnder%20%231.mp3");
+    }
+}

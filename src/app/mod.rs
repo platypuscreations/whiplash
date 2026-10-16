@@ -7,6 +7,7 @@
 mod desktop;
 mod dialogs;
 mod equalizer;
+mod media;
 mod menus;
 mod milkdrop;
 mod playlist;
@@ -69,6 +70,9 @@ pub enum UserEvent {
     Quit,
     /// A file dialog closed, with the paths chosen (none if cancelled).
     DialogClosed(dialogs::Purpose, Vec<PathBuf>),
+    /// A media key, or the desktop's media controls.
+    #[cfg_attr(target_os = "macos", allow(dead_code))] // until macOS has its media controls
+    Media(media::Command),
 }
 
 /// Which of the app's windows something refers to.
@@ -285,6 +289,8 @@ pub struct App {
     skin_choices: Vec<PathBuf>,
     /// For sending events to the event loop from other threads.
     proxy: EventLoopProxy<UserEvent>,
+    /// The system's media keys and now-playing display.
+    media: media::MediaControls,
     /// A file dialog is open; only one is opened at a time.
     dialog_open: bool,
     /// For what we ask of the desktop beyond winit, connected when first needed.
@@ -377,6 +383,7 @@ impl App {
             window_drag: None,
             shown: vec![Kind::Main],
             skin_choices: Vec::new(),
+            media: media::MediaControls::connect(proxy.clone()),
             proxy,
             dialog_open: false,
             desktop: std::cell::OnceCell::new(),
@@ -523,6 +530,37 @@ impl App {
             self.play_current();
         } else {
             self.player.stop();
+        }
+    }
+
+    /// Media keys and the desktop's media controls. Unlike the Play
+    /// button, Play with nothing in the playlist does nothing, rather than
+    /// opening a file dialog while you're in another app.
+    fn media_command(&mut self, command: media::Command) {
+        let playing = self.player.state() == PlayState::Playing;
+        match command {
+            media::Command::Play | media::Command::PlayPause if playing => {
+                if command == media::Command::PlayPause {
+                    self.player.pause();
+                }
+            }
+            media::Command::Play | media::Command::PlayPause => {
+                if !self.playlist.is_empty() {
+                    self.play();
+                }
+            }
+            media::Command::Pause => {
+                if playing {
+                    self.player.pause();
+                }
+            }
+            media::Command::Stop => self.player.stop(),
+            media::Command::Next => self.next(),
+            media::Command::Previous => self.previous(),
+            media::Command::Seek(seconds) => self.seek_by(seconds),
+            media::Command::SetPosition(seconds) => self.seek_by(seconds - self.player.position()),
+            media::Command::SetShuffle(on) => self.state.shuffle = on,
+            media::Command::SetRepeat(on) => self.state.repeat = on,
         }
     }
 
@@ -861,6 +899,13 @@ impl App {
                 "l" => self.open_dialog(dialogs::Purpose::PlayFiles),
                 _ => {}
             },
+            // Media keys the desktop didn't take for itself.
+            Key::Named(NamedKey::MediaPlayPause) => self.media_command(media::Command::PlayPause),
+            Key::Named(NamedKey::MediaPlay) => self.media_command(media::Command::Play),
+            Key::Named(NamedKey::MediaPause) => self.media_command(media::Command::Pause),
+            Key::Named(NamedKey::MediaStop) => self.media_command(media::Command::Stop),
+            Key::Named(NamedKey::MediaTrackNext) => self.media_command(media::Command::Next),
+            Key::Named(NamedKey::MediaTrackPrevious) => self.media_command(media::Command::Previous),
             Key::Named(NamedKey::ArrowLeft) => self.seek_by(-SEEK_STEP),
             Key::Named(NamedKey::ArrowRight) => self.seek_by(SEEK_STEP),
             Key::Named(NamedKey::ArrowUp) => self.set_volume(self.state.volume + 0.05),
@@ -1049,6 +1094,10 @@ impl ApplicationHandler<UserEvent> for App {
                 self.dialog_closed(purpose, paths);
                 self.redraw_all();
             }
+            UserEvent::Media(command) => {
+                self.media_command(command);
+                self.redraw_all();
+            }
             UserEvent::Metadata => {
                 let results: Vec<_> = self.metadata.results().collect();
                 for details in results {
@@ -1220,6 +1269,7 @@ impl ApplicationHandler<UserEvent> for App {
     /// sleep. While something is moving, wake up again for the next frame.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.refresh_tooltip(event_loop);
+        self.media.sync(&self.player, self.state.shuffle, self.state.repeat);
         let mut wake = None;
         if self.animating() {
             let now = Instant::now();

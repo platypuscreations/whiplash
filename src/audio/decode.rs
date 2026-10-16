@@ -23,12 +23,32 @@ pub struct TrackInfo {
     pub path: PathBuf,
     /// "Artist - Title" from the file's tags, or the file name.
     pub title: String,
+    /// The file's own tags, for the system's now-playing display.
+    pub tags: Tags,
     /// Length in seconds, if the file says.
     pub duration: Option<f64>,
     pub sample_rate: u32,
     pub channels: usize,
     /// Average bitrate in kilobits per second.
     pub kbps: Option<u32>,
+}
+
+/// A track's artist, title and album tags, where it has them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Tags {
+    pub artist: Option<String>,
+    pub title: Option<String>,
+    pub album: Option<String>,
+}
+
+impl Tags {
+    /// "Artist - Title", or just the title, if there is one.
+    fn display_title(&self) -> Option<String> {
+        match (&self.artist, &self.title) {
+            (Some(artist), Some(title)) => Some(format!("{artist} - {title}")),
+            (_, title) => title.clone(),
+        }
+    }
 }
 
 /// An open audio file, ready to be decoded packet by packet.
@@ -77,7 +97,8 @@ impl Track {
             (Some(bytes), Some(secs)) if secs > 0.0 => Some((bytes as f64 * 8.0 / secs / 1000.0).round() as u32),
             _ => None,
         };
-        let title = read_title(format.as_mut()).unwrap_or_else(|| {
+        let tags = read_tags(format.as_mut());
+        let title = tags.display_title().unwrap_or_else(|| {
             path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
         });
 
@@ -86,7 +107,7 @@ impl Track {
             decoder,
             track_id,
             time_base,
-            info: TrackInfo { path: path.to_owned(), title, duration, sample_rate, channels, kbps },
+            info: TrackInfo { path: path.to_owned(), title, tags, duration, sample_rate, channels, kbps },
             skip_frames: 0,
             interleaved: Vec::new(),
             stereo: Vec::new(),
@@ -166,25 +187,28 @@ impl Track {
     }
 }
 
-/// Builds "Artist - Title" from the file's tags, if it has a title.
-fn read_title(format: &mut dyn FormatReader) -> Option<String> {
+/// Reads the artist, title and album from the file's tags.
+fn read_tags(format: &mut dyn FormatReader) -> Tags {
     let mut metadata = format.metadata();
-    let revision = metadata.skip_to_latest()?;
+    let Some(revision) = metadata.skip_to_latest() else { return Tags::default() };
     let tags = revision.media.tags.iter().chain(revision.per_track.iter().flat_map(|t| t.metadata.tags.iter()));
 
-    let (mut artist, mut title) = (None, None);
+    let mut found = Tags::default();
+    let set = |slot: &mut Option<String>, value: &str| {
+        let value = value.trim();
+        if slot.is_none() && !value.is_empty() {
+            *slot = Some(value.to_string());
+        }
+    };
     for tag in tags {
         match &tag.std {
-            Some(StandardTag::Artist(a)) if artist.is_none() => artist = Some(a.trim().to_string()),
-            Some(StandardTag::TrackTitle(t)) if title.is_none() => title = Some(t.trim().to_string()),
+            Some(StandardTag::Artist(a)) => set(&mut found.artist, a),
+            Some(StandardTag::TrackTitle(t)) => set(&mut found.title, t),
+            Some(StandardTag::Album(a)) => set(&mut found.album, a),
             _ => {}
         }
     }
-    match (artist, title) {
-        (Some(artist), Some(title)) if !artist.is_empty() && !title.is_empty() => Some(format!("{artist} - {title}")),
-        (_, Some(title)) if !title.is_empty() => Some(title),
-        _ => None,
-    }
+    found
 }
 
 #[cfg(test)]

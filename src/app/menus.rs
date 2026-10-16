@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
 
+use super::dialogs::{self, Purpose};
 use super::{App, Kind, Show, View, file_name, is_skin, open_skin};
 use crate::audio::{self, PlayState};
 use crate::config;
@@ -196,12 +197,8 @@ impl App {
                 self.show_message(format!("removed {removed} missing file(s)"));
             }
 
-            Action::PlayFiles => self.open_files_dialog(),
-            Action::PlayFolder => {
-                if let Some(folder) = rfd::FileDialog::new().set_title("Play folder").pick_folder() {
-                    self.add_tracks(vec![folder], true);
-                }
-            }
+            Action::PlayFiles => self.open_dialog(Purpose::PlayFiles),
+            Action::PlayFolder => self.open_dialog(Purpose::PlayFolder),
             Action::SkinBrowser => self.open_skin_browser(event_loop, Kind::Main),
             Action::ToggleEqualizer => self.set_equalizer_open(!self.state.equalizer_open),
             Action::TogglePlaylist => self.set_playlist_open(!self.state.playlist_open),
@@ -209,29 +206,19 @@ impl App {
             Action::ToggleAlwaysOnTop => self.set_always_on_top(!self.always_on_top),
             Action::Visualizer(mode) => self.visualizer.mode = mode,
             Action::ToggleMilkDrop => self.set_milkdrop_open(event_loop, !self.milkdrop_open),
-            Action::ChoosePresetsFolder => {
-                let dialog = rfd::FileDialog::new().set_title("Choose a folder of MilkDrop presets");
-                if let Some(folder) = dialog.pick_folder() {
-                    self.milkdrop_presets = Some(folder);
-                    let note = if self.milkdrop_started() { " (used from next start)" } else { "" };
-                    self.show_message(format!("milkdrop presets folder set{note}"));
-                }
-            }
+            Action::ChoosePresetsFolder => self.open_dialog(Purpose::MilkDropPresetsFolder),
             Action::FileInfo => self.show_file_info(),
-            Action::About => {
-                rfd::MessageDialog::new()
-                    .set_title("About Whiplash Player")
-                    .set_description(
-                        "Whiplash Player: a music player for classic Winamp 2.x skins.\n\n\
-                         Copyright © 2026 Luke Hindman. Free software under the GNU \
-                         General Public License, version 3 or later.\n\n\
-                         Skin layout and visualizer behavior follow Webamp by Jordan \
-                         Eldredge and contributors (MIT license). MilkDrop \
-                         visualizations are rendered by projectM (LGPL).\n\n\
-                         Not affiliated with Winamp or Llama Group.",
-                    )
-                    .show();
-            }
+            Action::About => dialogs::message_box(
+                "About Whiplash Player",
+                "Whiplash Player: a music player for classic Winamp 2.x skins.\n\n\
+                 Copyright © 2026 Luke Hindman. Free software under the GNU \
+                 General Public License, version 3 or later.\n\n\
+                 Skin layout and visualizer behavior follow Webamp by Jordan \
+                 Eldredge and contributors (MIT license). MilkDrop \
+                 visualizations are rendered by projectM (LGPL).\n\n\
+                 Not affiliated with Winamp or Llama Group."
+                    .to_string(),
+            ),
             Action::Exit => event_loop.exit(),
 
             Action::Skin(index) => {
@@ -243,15 +230,7 @@ impl App {
                 }
             }
             Action::BuiltInSkin => self.set_skin(crate::skin::Skin::builtin(), None),
-            Action::LoadSkinFile => {
-                let dialog = rfd::FileDialog::new().set_title("Load skin").add_filter("Winamp skins", &["wsz", "zip"]);
-                if let Some(path) = dialog.pick_file() {
-                    match open_skin(&path) {
-                        Ok(skin) => self.set_skin(skin, Some(path)),
-                        Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
-                    }
-                }
-            }
+            Action::LoadSkinFile => self.open_dialog(Purpose::LoadSkin),
             Action::OpenSkinsFolder => {
                 if let Some(folder) = config::skins_folder() {
                     let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
@@ -261,8 +240,8 @@ impl App {
                 }
             }
 
-            Action::LoadPresetFile => self.load_preset(),
-            Action::SavePresetFile => self.save_preset(),
+            Action::LoadPresetFile => self.open_dialog(Purpose::LoadEqPreset),
+            Action::SavePresetFile => self.open_dialog(Purpose::SaveEqPreset),
             Action::Preset(index) => {
                 if let Some((name, preamp_db, bands_db)) = eqf::BUILT_IN.get(index) {
                     self.eq.preamp = eq_window::from_db(*preamp_db);
@@ -312,7 +291,7 @@ impl App {
             }
             Err(err) => text += &format!("\n\nCan't be played: {err:#}"),
         }
-        rfd::MessageDialog::new().set_title("File info").set_description(text).show();
+        dialogs::message_box("File info", text);
     }
 }
 

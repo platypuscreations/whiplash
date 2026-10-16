@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key, NamedKey};
 
-use super::{App, Kind, file_name};
-use crate::audio;
+use super::dialogs::Purpose;
+use super::{App, Kind};
 use crate::playlist::Select;
 use crate::playlist_file;
 use crate::ui::menu::{Action, Item};
@@ -207,24 +207,15 @@ impl App {
             PlControl::Pause => self.player.pause(),
             PlControl::Stop => self.player.stop(),
             PlControl::Next => self.next(),
-            PlControl::Eject => self.open_files_dialog(),
+            PlControl::Eject => self.open_dialog(Purpose::PlayFiles),
         }
     }
 
     fn pl_menu_item(&mut self, item: MenuItem, event_loop: &ActiveEventLoop) {
         match item {
             MenuItem::AddUrl => self.show_message("internet streams aren't supported yet".to_string()),
-            MenuItem::AddFolder => {
-                if let Some(folder) = rfd::FileDialog::new().set_title("Add folder").pick_folder() {
-                    self.add_tracks(vec![folder], false);
-                }
-            }
-            MenuItem::AddFiles => {
-                let dialog = rfd::FileDialog::new().set_title("Add file(s)").add_filter("Audio files", audio::EXTENSIONS);
-                if let Some(files) = dialog.pick_files() {
-                    self.add_tracks(files, false);
-                }
-            }
+            MenuItem::AddFolder => self.open_dialog(Purpose::AddFolder),
+            MenuItem::AddFiles => self.open_dialog(Purpose::AddFiles),
             MenuItem::RemoveMisc => {
                 self.open_menu(event_loop, Kind::Playlist, vec![Item::new("Remove missing files", Action::RemoveMissingFiles)])
             }
@@ -248,29 +239,10 @@ impl App {
             ),
             MenuItem::FileInfo => self.show_file_info(),
             MenuItem::MiscOptions => self.show_message("no playlist options yet".to_string()),
-            MenuItem::SaveList => self.save_list(),
-            MenuItem::LoadList => {
-                let dialog = rfd::FileDialog::new()
-                    .set_title("Load playlist")
-                    .add_filter("Playlists", playlist_file::PLAYLIST_EXTENSIONS);
-                if let Some(path) = dialog.pick_file() {
-                    self.add_tracks(vec![path], true);
-                }
-            }
+            MenuItem::SaveList => self.open_dialog(Purpose::SavePlaylist),
+            MenuItem::LoadList => self.open_dialog(Purpose::LoadPlaylist),
         }
         self.pl.scroll_to(self.pl.scroll as isize, self.playlist.len());
-    }
-
-    fn save_list(&mut self) {
-        let dialog = rfd::FileDialog::new()
-            .set_title("Save playlist")
-            .add_filter("M3U playlist", &["m3u"])
-            .set_file_name("playlist.m3u");
-        let Some(path) = dialog.save_file() else { return };
-        match playlist_file::save_m3u(&path, self.playlist.entries()) {
-            Ok(()) => self.show_message(format!("saved playlist: {}", file_name(&path))),
-            Err(err) => self.show_message(format!("{err:#}")),
-        }
     }
 
     /// Playlist keys: arrows move the selection, Enter plays, Delete

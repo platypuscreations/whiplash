@@ -41,6 +41,7 @@ glutin-winit = { version = "0.5.0", optional = true }
 image = { version = "0.25.10", default-features = false, features = ["bmp"] }
 projectm = { version = "3.1.2", features = ["static", "playlist"], optional = true }
 raw-window-handle = { version = "0.6.2", optional = true }
+pollster = "0.4.0"
 rfd = "0.17.2"
 ringbuf = "0.5.3"
 rustfft = "6.4.1"
@@ -50,6 +51,14 @@ symphonia = { version = "0.6.1", features = ["all"] }
 toml = "1.1.8"
 winit = "0.30"
 zip = { version = "9.0.3", default-features = false, features = ["deflate", "deflate64", "bzip2", "legacy-zip"] }
+
+# macOS's own file dialogs, shown as free-standing windows (see
+# src/app/dialogs/macos.rs). The same versions rfd and winit use.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSString", "NSURL"] }
 
 # A locally fixed copy of the projectm crate (see vendor/projectm/PATCHES.md).
 [patch.crates-io]

@@ -2831,6 +2831,7 @@ name = "whiplash"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "block2 0.6.2",
  "cpal",
  "ctrlc",
  "directories",
@@ -2840,6 +2841,10 @@ dependencies = [
  "glutin",
  "glutin-winit",
  "image",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "pollster",
  "projectm",
  "raw-window-handle",
  "rfd",

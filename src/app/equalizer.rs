@@ -1,9 +1,7 @@
 //! The equalizer window's behavior.
 
-use anyhow::Context;
 use winit::event_loop::ActiveEventLoop;
-use super::{App, Kind, file_name};
-use crate::eqf;
+use super::{App, Kind};
 use crate::ui::eq_window::{self, EqControl};
 use crate::ui::main_window::Slider;
 
@@ -23,36 +21,6 @@ impl App {
             eq.window.set_visible(false);
         }
         self.redraw(Kind::Main);
-    }
-
-    fn preset_file_dialog() -> rfd::FileDialog {
-        rfd::FileDialog::new().add_filter("Winamp EQ presets", &["eqf", "q1"])
-    }
-
-    pub(super) fn load_preset(&mut self) {
-        let Some(path) = Self::preset_file_dialog().set_title("Load EQ preset").pick_file() else { return };
-        let loaded = std::fs::read(&path).context("could not read file").and_then(|bytes| eqf::parse(&bytes));
-        match loaded {
-            // A .q1 library holds several presets; use the first.
-            Ok(presets) => {
-                let preset = &presets[0];
-                self.eq.preamp = preset.preamp;
-                self.eq.bands = preset.bands;
-                self.apply_equalizer();
-                self.show_message(format!("loaded eq preset: {}", preset.name));
-            }
-            Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
-        }
-    }
-
-    pub(super) fn save_preset(&mut self) {
-        let dialog = Self::preset_file_dialog().set_title("Save EQ preset").set_file_name("preset.eqf");
-        let Some(path) = dialog.save_file() else { return };
-        let preset = eqf::Preset { name: file_name(&path), preamp: self.eq.preamp, bands: self.eq.bands };
-        match std::fs::write(&path, eqf::write(&[preset])) {
-            Ok(()) => self.show_message(format!("saved eq preset: {}", file_name(&path))),
-            Err(err) => self.show_message(format!("could not save preset: {err}")),
-        }
     }
 
     pub(super) fn eq_mouse_down(&mut self) {

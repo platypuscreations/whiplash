@@ -4,6 +4,7 @@
 //! The main window's behavior lives here; the equalizer and playlist
 //! windows have their own files.
 
+mod dialogs;
 mod equalizer;
 mod menus;
 mod milkdrop;
@@ -64,6 +65,8 @@ pub enum UserEvent {
     Metadata,
     /// Ctrl+C was pressed in the terminal: quit, saving settings.
     Quit,
+    /// A file dialog closed, with the paths chosen (none if cancelled).
+    DialogClosed(dialogs::Purpose, Vec<PathBuf>),
 }
 
 /// Which of the app's windows something refers to.
@@ -278,6 +281,10 @@ pub struct App {
     last_title_click: Option<(Kind, Instant)>,
     /// The skins listed in the open skin browser.
     skin_choices: Vec<PathBuf>,
+    /// For sending events to the event loop from other threads.
+    proxy: EventLoopProxy<UserEvent>,
+    /// A file dialog is open; only one is opened at a time.
+    dialog_open: bool,
     /// Windows that have been on screen, whose positions are worth saving.
     shown: Vec<Kind>,
     /// A temporary message for the marquee, and when it was set.
@@ -351,9 +358,12 @@ impl App {
             menu_font: None,
             player: Player::new(),
             playlist: Playlist::default(),
-            metadata: MetadataReader::new(move || {
-                let _ = proxy.send_event(UserEvent::Metadata);
-            }),
+            metadata: {
+                let proxy = proxy.clone();
+                MetadataReader::new(move || {
+                    let _ = proxy.send_event(UserEvent::Metadata);
+                })
+            },
             visualizer,
             modifiers: ModifiersState::empty(),
             double_size: config.double_size,
@@ -363,6 +373,8 @@ impl App {
             window_drag: None,
             shown: vec![Kind::Main],
             skin_choices: Vec::new(),
+            proxy,
+            dialog_open: false,
             last_title_click: None,
             #[cfg(feature = "milkdrop")]
             milkdrop: None,
@@ -480,7 +492,7 @@ impl App {
 
     fn play(&mut self) {
         if self.playlist.is_empty() {
-            self.open_files_dialog();
+            self.open_dialog(dialogs::Purpose::PlayFiles);
         } else if self.player.info().is_none() {
             self.play_current();
         } else if let Err(err) = self.player.play() {
@@ -527,17 +539,6 @@ impl App {
         // Snap to the middle, since hitting exact center by hand is fiddly.
         self.state.balance = if balance.abs() < 0.1 { 0.0 } else { balance };
         self.player.set_balance(self.state.balance);
-    }
-
-    /// The eject button: choose files, which replace the playlist.
-    fn open_files_dialog(&mut self) {
-        let files = rfd::FileDialog::new()
-            .set_title("Open file(s)")
-            .add_filter("Audio files", audio::EXTENSIONS)
-            .pick_files();
-        if let Some(files) = files.filter(|f| !f.is_empty()) {
-            self.add_tracks(files, true);
-        }
     }
 
     fn show_message(&mut self, text: String) {
@@ -821,7 +822,7 @@ impl App {
             Control::Pause => self.player.pause(),
             Control::Stop => self.player.stop(),
             Control::Next => self.next(),
-            Control::Eject => self.open_files_dialog(),
+            Control::Eject => self.open_dialog(dialogs::Purpose::PlayFiles),
             Control::Shuffle => self.state.shuffle = !self.state.shuffle,
             Control::Repeat => self.state.repeat = !self.state.repeat,
             Control::Equalizer => self.set_equalizer_open(!self.state.equalizer_open),
@@ -852,7 +853,7 @@ impl App {
                 "c" => self.player.pause(),
                 "v" => self.player.stop(),
                 "b" => self.next(),
-                "l" => self.open_files_dialog(),
+                "l" => self.open_dialog(dialogs::Purpose::PlayFiles),
                 _ => {}
             },
             Key::Named(NamedKey::ArrowLeft) => self.seek_by(-SEEK_STEP),
@@ -1030,6 +1031,10 @@ impl ApplicationHandler<UserEvent> for App {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::Quit => event_loop.exit(),
+            UserEvent::DialogClosed(purpose, paths) => {
+                self.dialog_closed(purpose, paths);
+                self.redraw_all();
+            }
             UserEvent::Metadata => {
                 let results: Vec<_> = self.metadata.results().collect();
                 for details in results {

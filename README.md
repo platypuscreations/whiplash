@@ -1,30 +1,112 @@
 # Whiplash Player
 
-A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.wsz`). Whiplash (`whiplash` for short) lives at <https://github.com/platypuscreations/whiplash>.
+A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.wsz` files). Whiplash (`whiplash` for short) lives at <https://github.com/platypuscreations/whiplash>.
 
-Status: phase 8 (packaging). The main window renders from any classic skin, plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A), and shows the classic spectrum analyzer or oscilloscope in the skin's colors. The equalizer window has a 10-band EQ with preamp and loads and saves Winamp `.eqf` presets. The playlist window is resizable, uses the skin's colors and font, and reads and writes M3U and PLS playlists. Windows snap and dock together, have shade modes, and everything is remembered between runs. MilkDrop presets play in their own window through projectM.
+- Plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A).
+- Shows the classic spectrum analyzer or oscilloscope in each skin's colors.
+- Has a 10-band equalizer that loads and saves Winamp `.eqf` presets.
+- Has a resizable playlist editor that reads and writes M3U and PLS playlists.
+- Windows snap and dock together, shrink to strips ("shade mode"), and are remembered between runs.
+- Plays MilkDrop visualizations in their own window.
 
-## Building
+## Install
 
-Needs Rust, plus CMake and a C++ compiler for projectM (MilkDrop), which is compiled from source as part of the build (the first build takes a minute or so). On macOS, `xcode-select --install` and `brew install cmake` cover it. To build without MilkDrop: `cargo build --no-default-features`.
+Download Whiplash from the **[latest release](https://github.com/platypuscreations/whiplash/releases/latest)**. Under **Assets**, pick the file for your computer:
 
-## Packaging
+| Computer | File |
+|---|---|
+| Mac with Apple silicon | `whiplash-<version>.dmg` |
+| Debian, Ubuntu, Linux Mint and similar (64-bit PC) | `whiplash_<version>-1_amd64.deb` |
+| Other Linux (64-bit PC) | `whiplash-<version>-x86_64.AppImage` |
 
-- **macOS:** `packaging/macos/build-app.sh --dmg` makes `Whiplash Player.app` and a disk image in `target/release/bundle` (needs `brew install cmake librsvg`). The app is signed ad hoc, so on another Mac it opens with a right-click → Open the first time.
-- **Linux:** `packaging/linux/build-packages.sh` makes a `.deb` and an AppImage (the script lists what to install first). Or build them in Docker from any computer:
+`<version>` is the release number, for example `0.1.0`.
+
+### macOS
+
+Needs a Mac with Apple silicon (M1 or later) and macOS 11 or later. On an Intel Mac, [build from source](#building-from-source) instead.
+
+1. Double-click the downloaded `.dmg` file.
+2. Drag **Whiplash Player** onto the **Applications** folder in the window that opens.
+3. Open Whiplash Player from Applications. It's free software without a paid Apple developer signature, so macOS blocks it the first time:
+   - **macOS 15 (Sequoia) and later:** macOS says "Whiplash Player" Not Opened. Click **Done**. Then open **System Settings → Privacy & Security**, scroll down to the message that Whiplash Player was blocked, and click **Open Anyway**. Confirm with your password, and click **Open Anyway** once more.
+   - **macOS 14 and earlier:** right-click (or Control-click) Whiplash Player in Applications, choose **Open**, then click **Open** again.
+
+   You only need to do this once. If you prefer the Terminal, this does the same thing:
+   ```sh
+   xattr -dr com.apple.quarantine "/Applications/Whiplash Player.app"
+   ```
+
+### Linux
+
+The downloaded packages are for 64-bit PCs (x86-64). For ARM computers, such as a Raspberry Pi, [build the packages yourself](#packaging).
+
+Use whichever package suits your system. The commands below use version 0.1.0; change the number to match your download.
+
+- **Debian, Ubuntu, Linux Mint and similar:** install the `.deb`, which adds Whiplash Player to your applications menu:
   ```sh
-  docker build -t whiplash-linux packaging/linux
-  docker run --rm -v "$PWD":/src:ro -v "$PWD/dist":/out whiplash-linux
+  sudo apt install ./whiplash_0.1.0-1_amd64.deb
   ```
-- **GitHub Actions** (`.github/workflows/build.yml`) tests on macOS and Ubuntu and builds all three packages on every push.
+  To start it from a terminal, run `whiplash`.
+- **Any other distribution:** use the AppImage, which runs without installing:
+  ```sh
+  chmod +x whiplash-0.1.0-x86_64.AppImage
+  ./whiplash-0.1.0-x86_64.AppImage
+  ```
+  If it complains about FUSE, install `libfuse2` (on Ubuntu 24.04 and later: `libfuse2t64`). Or run it with `--appimage-extract-and-run`.
 
-## Running
+Whiplash uses `zenity` for a few message boxes (file info, About). The `.deb` asks for it; with the AppImage, install it from your distribution if those boxes don't appear.
+
+### Development builds
+
+To try changes made since the last release: every change on the `main` branch is built automatically, and the packages are kept for 90 days. Sign in to GitHub, open the [list of successful builds](https://github.com/platypuscreations/whiplash/actions/workflows/build.yml?query=branch%3Amain+is%3Asuccess), click the newest one, and download `whiplash-macos` or `whiplash-linux` from **Artifacts** at the bottom. Each is a `.zip` file holding the same packages as a release.
+
+## Skins
+
+Whiplash doesn't come with a skin: until you add one, its windows are drawn as plain grey boxes. The [Winamp Skin Museum](https://skins.webamp.org/) has tens of thousands of free classic skins. Start with the original Winamp look, base 2.91.
+
+### Get the base 2.91 skin
+
+1. Open the skin's page in the museum: <https://skins.webamp.org/skin/2f245e741b6bd4e1a122a28489f0c7b7>. You can also search the museum for `base-2.91`.
+2. Click the **Download skin** button. Your browser saves `base-2.91.wsz`, usually in your Downloads folder.
+3. Drag `base-2.91.wsz` onto Whiplash's main window. The skin changes straight away, and Whiplash remembers it next time.
+4. To keep it, move it into Whiplash's **Skins** folder. Otherwise, deleting it from Downloads later loses the skin. Right-click the main window and choose **Skin browser...** (or press Alt+S), then **Open skins folder**, and drag the file into the folder that opens.
+
+Or download it straight into the Skins folder from a terminal:
 
 ```sh
-cargo run -- path/to/skin.wsz song.mp3 ~/Music/Album list.m3u   # a skin, music, folders, playlists
-cargo run                                          # then drop skins or music onto the window
-cargo run -- --render-to out.bmp path/to/skin.wsz  # save a screenshot without opening a window
+# macOS
+mkdir -p ~/Library/Application\ Support/whiplash/Skins
+curl -L -o ~/Library/Application\ Support/whiplash/Skins/base-2.91.wsz \
+  https://r2.webampskins.org/skins/2f245e741b6bd4e1a122a28489f0c7b7.wsz
+
+# Linux
+mkdir -p ~/.config/whiplash/Skins
+curl -L -o ~/.config/whiplash/Skins/base-2.91.wsz \
+  https://r2.webampskins.org/skins/2f245e741b6bd4e1a122a28489f0c7b7.wsz
 ```
+
+Then press Alt+S in Whiplash and choose **base-2.91**.
+
+### More skins
+
+Browse or search the [museum](https://skins.webamp.org/), and use the same steps for any skin you like:
+
+- **Try before you download:** a skin's page has a button that opens it in Webamp, so you can see it in action first.
+- **Classic skins only:** Whiplash plays classic skins (`.wsz`). Winamp 3 and 5 "modern" skins (`.wal`) aren't supported.
+- **Switching skins:** the skin browser (Alt+S) lists the skins in your Skins folder and in the folder of the skin you're using, up to 40 of them. You can also drop any `.wsz` file onto Whiplash at any time.
+
+Skins are their authors' artwork, shared for personal use.
+
+## MilkDrop visualizations
+
+Press Ctrl+K (Cmd+K on macOS) to open the MilkDrop window. It needs presets (`.milk` files), which aren't included. projectM's [curated pack](https://github.com/projectM-visualizer/presets-cream-of-the-crop) has about 9,800 of them; download it with **Code → Download ZIP** on that page.
+
+1. Unzip it and put its contents in the **Presets** folder inside Whiplash's settings folder (see [Settings](#settings)). Or choose any folder from the main menu: **MilkDrop presets folder...**
+2. Some presets use pictures from the [texture pack](https://github.com/projectM-visualizer/presets-milkdrop-texture-pack). Put its `textures` folder inside the presets folder.
+
+The presets shuffle every 30 seconds. In the MilkDrop window, N, P and R pick the next, previous or a random preset. L keeps the current one, and F or a double-click switches to full screen.
+
+## Using Whiplash
 
 | Input | Action |
 |---|---|
@@ -56,7 +138,59 @@ cargo run -- --render-to out.bmp path/to/skin.wsz  # save a screenshot without o
 | Drag a title bar | Move the window; windows snap together, and docked windows follow the main window |
 | Double-click a title bar, shade button | Shade mode (shrink to a strip) |
 
-## Tests
+Drop music files, folders or playlists onto the main window to play them, or onto the playlist to add them.
+
+## Settings
+
+Whiplash saves its settings, window positions and playlist when it quits. They go in its settings folder, which also holds the **Skins** and **Presets** folders:
+
+- **macOS:** `~/Library/Application Support/whiplash`. In Finder, choose **Go → Go to Folder...** and paste that path.
+- **Linux:** `~/.config/whiplash`
+
+Not supported yet: non-rectangular windows from a skin's `region.txt`, and internet radio streams.
+
+## For developers
+
+### Building from source
+
+Needs [Rust](https://rustup.rs), plus CMake and a C++ compiler. projectM (MilkDrop) is compiled from source as part of the build, and the first build takes a minute or so.
+
+- **macOS:** `xcode-select --install` and `brew install cmake`.
+- **Ubuntu:** `sudo apt install cmake g++ pkg-config libasound2-dev libgl-dev libegl-dev libclang-dev`.
+
+To build without MilkDrop (and without CMake): `cargo build --no-default-features`.
+
+```sh
+cargo run -- path/to/skin.wsz song.mp3 ~/Music/Album list.m3u   # a skin, music, folders, playlists
+cargo run                                          # then drop skins or music onto the window
+cargo run -- --render-to out.bmp path/to/skin.wsz  # save a screenshot without opening a window
+```
+
+Set `WHIPLASH_CONFIG_DIR` to use a different settings folder (handy for testing), and `WHIPLASH_DEBUG_EVENTS=1` to log window events.
+
+### Packaging
+
+- **macOS:** `packaging/macos/build-app.sh --dmg` makes `Whiplash Player.app` and a disk image in `target/release/bundle` (needs `brew install cmake librsvg`).
+- **Linux:** `packaging/linux/build-packages.sh` makes a `.deb` and an AppImage (the script lists what to install first). Or build them in Docker from any computer. On an ARM computer, this builds ARM packages:
+  ```sh
+  docker build -t whiplash-linux packaging/linux
+  docker run --rm -v "$PWD":/src:ro -v "$PWD/dist":/out whiplash-linux
+  ```
+- **GitHub Actions** (`.github/workflows/build.yml`) tests on macOS and Ubuntu and builds all three packages on every push.
+
+### Making a release
+
+1. Set the new version in `Cargo.toml` (for example `version = "0.2.0"`), run `cargo build` so `Cargo.lock` picks it up, and commit.
+2. Tag the commit and push the tag:
+   ```sh
+   git tag v0.2.0
+   git push origin main v0.2.0
+   ```
+3. The **Build** workflow tests and packages that commit, then publishes a release named "Whiplash Player 0.2.0" with the `.dmg`, `.deb` and AppImage attached. It takes about 15 minutes. The release text comes from `packaging/release-notes.md`, followed by GitHub's list of changes.
+
+The tag must match the version in `Cargo.toml`, or the release step stops with an error.
+
+### Tests
 
 ```sh
 cargo test
@@ -64,15 +198,7 @@ cargo test
 WHIPLASH_TEST_AUDIO=path/to/folder cargo test -- --ignored --nocapture
 ```
 
-## Settings and skins
-
-Settings, window positions and the playlist are saved when Whiplash quits (including with Ctrl+C in a terminal), in `~/Library/Application Support/whiplash` on macOS or `~/.config/whiplash` on Linux. Set `WHIPLASH_CONFIG_DIR` to use a different folder.
-
-Skins can be found at <https://skins.webamp.org>. Put `.wsz` files in the `Skins` folder inside the settings folder (the skin browser's "Open skins folder" opens it); skins next to the current skin are listed too. Skins are other people's artwork: the `skins/` folder in this repository is ignored by git.
-
-MilkDrop presets (`.milk` files) aren't included. Put them in the `Presets` folder inside the settings folder, or choose any folder from the main menu ("MilkDrop presets folder..."). projectM's curated pack is a good start: <https://github.com/projectM-visualizer/presets-cream-of-the-crop> (about 9,800 presets); its companion texture pack <https://github.com/projectM-visualizer/presets-milkdrop-texture-pack> can go in a `textures` folder inside or next to the presets folder.
-
-Not supported yet: non-rectangular windows from a skin's `region.txt` (the drawing library can't make parts of a window see-through on macOS) and internet streams.
+Skins are other people's artwork: the `skins/` folder in this repository is ignored by git, for local test skins.
 
 ## License
 
@@ -85,6 +211,8 @@ It includes projectM (LGPL) and builds on Webamp's work (MIT) and many Rust crat
 ## Credits
 
 Sprite coordinates, window layout and the visualizer's look are taken from [Webamp](https://github.com/captbaritone/webamp) (MIT license) by Jordan Eldredge and contributors.
+
+Skin links point to the [Winamp Skin Museum](https://skins.webamp.org/), also by Jordan Eldredge.
 
 MilkDrop visualizations are rendered by [projectM](https://github.com/projectM-visualizer/projectm) (LGPL 2.1), compiled into Whiplash.
 

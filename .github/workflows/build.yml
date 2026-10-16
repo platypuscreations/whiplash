@@ -3,6 +3,9 @@
 # Every push and pull request runs the tests and lint on both systems. If
 # they pass, the macOS app (.dmg) and the Linux packages (.deb, AppImage)
 # are built and attached to the run as downloadable "artifacts".
+#
+# Pushing a version tag (like v0.2.0) also publishes those packages as a
+# GitHub Release; see "Making a release" in the README.
 name: Build
 
 on:
@@ -70,3 +73,34 @@ jobs:
           path: |
             target/release/bundle/*.deb
             target/release/bundle/*.AppImage
+
+  release:
+    # Only for version tags, once both sets of packages are built.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos-app, linux-packages]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to create the release
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the tag matches the version in Cargo.toml
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match the version in Cargo.toml ($version)."
+            exit 1
+          fi
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          # Install notes first, then GitHub's list of changes since the last release.
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "Whiplash Player ${GITHUB_REF_NAME#v}" \
+            --notes-file packaging/release-notes.md \
+            --generate-notes

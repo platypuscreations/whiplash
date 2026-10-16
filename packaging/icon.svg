@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- skinamp's app icon: a brushed-metal tile with a little LCD spectrum
+<!-- Whiplash's app icon: a brushed-metal tile with a little LCD spectrum
      analyzer, in the spirit of classic skins. Drawn for a 1024 px canvas
      using the macOS icon grid (an 824 px tile with 100 px margins). -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">

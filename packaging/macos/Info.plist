@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Describes skinamp.app to macOS. build-app.sh fills in @VERSION@. -->
+<!-- Describes Whiplash Player.app to macOS. build-app.sh fills in @VERSION@. -->
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>skinamp</string>
+    <string>Whiplash Player</string>
     <key>CFBundleDisplayName</key>
-    <string>skinamp</string>
+    <string>Whiplash Player</string>
     <key>CFBundleIdentifier</key>
-    <string>io.github.lhindman.skinamp</string>
+    <string>io.github.platypuscreations.whiplash</string>
     <key>CFBundleExecutable</key>
-    <string>skinamp</string>
+    <string>whiplash</string>
     <key>CFBundleIconFile</key>
-    <string>skinamp</string>
+    <string>whiplash</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

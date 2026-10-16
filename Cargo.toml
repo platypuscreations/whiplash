@@ -1,10 +1,11 @@
 [package]
-name = "skinamp"
+name = "whiplash"
 version = "0.1.0"
 edition = "2024"
 description = "A music player for classic Winamp skins, with MilkDrop visualizations"
 authors = ["Luke Hindman"]
 license = "GPL-3.0-or-later"
+repository = "https://github.com/platypuscreations/whiplash"
 
 # Settings for building a .deb package with `cargo deb` (see
 # packaging/linux/build-packages.sh).
@@ -12,19 +13,19 @@ license = "GPL-3.0-or-later"
 section = "sound"
 # "$auto" works out the system libraries the program links to.
 depends = "$auto"
-# zenity shows skinamp's message boxes (file info, about) on Linux.
+# zenity shows Whiplash's message boxes (file info, about) on Linux.
 recommends = "zenity"
 extended-description = """\
 Plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC files using classic \
 Winamp 2.x skins (.wsz), with a 10-band equalizer, playlist editor and \
 MilkDrop visualizations through projectM."""
 assets = [
-    ["target/release/skinamp", "usr/bin/", "755"],
-    ["packaging/linux/skinamp.desktop", "usr/share/applications/", "644"],
-    ["target/icons/skinamp.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
-    ["README.md", "usr/share/doc/skinamp/", "644"],
-    ["THIRD-PARTY-NOTICES.md", "usr/share/doc/skinamp/", "644"],
-    ["licenses/*", "usr/share/doc/skinamp/licenses/", "644"],
+    ["target/release/whiplash", "usr/bin/", "755"],
+    ["packaging/linux/whiplash.desktop", "usr/share/applications/", "644"],
+    ["target/icons/whiplash.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["README.md", "usr/share/doc/whiplash/", "644"],
+    ["THIRD-PARTY-NOTICES.md", "usr/share/doc/whiplash/", "644"],
+    ["licenses/*", "usr/share/doc/whiplash/licenses/", "644"],
 ]
 
 [dependencies]

@@ -51,7 +51,7 @@ impl Projectm {
         unsafe { ffi::projectm_destroy(instance) };
     }
 
-    // skinamp patch: pass NUL-terminated C strings (a Rust &str has no
+    // whiplash patch: pass NUL-terminated C strings (a Rust &str has no
     // terminator), using the platform's `c_char` rather than assuming `i8`.
     fn load_preset_file(instance: ProjectMHandle, filename: &str, smooth_transition: bool) {
         let filename = std::ffi::CString::new(filename).expect("preset file name contains a NUL byte");
@@ -138,7 +138,7 @@ impl Projectm {
         instance: ProjectMHandle,
         callback: F,
     ) {
-        // skinamp patch: `c_char` is unsigned on some platforms (ARM Linux),
+        // whiplash patch: `c_char` is unsigned on some platforms (ARM Linux),
         // so don't assume `i8`; and convert lossily, since a panic here
         // (inside a C callback) would abort the program.
         unsafe extern "C" fn trampoline<F: FnMut(String, String)>(

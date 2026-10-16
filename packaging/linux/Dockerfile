@@ -1,8 +1,8 @@
-# A Linux build environment for skinamp, for building the Linux packages
+# A Linux build environment for Whiplash, for building the Linux packages
 # from any computer with Docker:
 #
-#   docker build -t skinamp-linux packaging/linux
-#   docker run --rm -v "$PWD":/src:ro -v "$PWD/dist":/out skinamp-linux
+#   docker build -t whiplash-linux packaging/linux
+#   docker run --rm -v "$PWD":/src:ro -v "$PWD/dist":/out whiplash-linux
 #
 # Extra Cargo options go in CARGO_ARGS, e.g. `-e CARGO_ARGS=--no-default-features`
 # to leave out MilkDrop.

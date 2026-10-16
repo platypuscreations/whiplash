@@ -18,11 +18,11 @@ version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 bundle=target/release/bundle
 mkdir -p "$bundle" target/icons
 
-echo "Building skinamp $version..."
+echo "Building Whiplash $version..."
 cargo build --release "$@"
 
 # The icon, at the size desktops use for app launchers.
-rsvg-convert -w 256 -h 256 packaging/icon.svg -o target/icons/skinamp.png
+rsvg-convert -w 256 -h 256 packaging/icon.svg -o target/icons/whiplash.png
 
 echo "Building the .deb..."
 cargo deb --no-build --output "$bundle/"
@@ -43,16 +43,16 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 appdir=target/AppDir
 rm -rf "$appdir"
 # The license, and the notices and license texts for what's included.
-mkdir -p "$appdir/usr/share/doc/skinamp"
-cp LICENSE THIRD-PARTY-NOTICES.md "$appdir/usr/share/doc/skinamp/"
-cp -R licenses "$appdir/usr/share/doc/skinamp/"
-# linuxdeploy copies in the libraries skinamp needs, except ones every
+mkdir -p "$appdir/usr/share/doc/whiplash"
+cp LICENSE THIRD-PARTY-NOTICES.md "$appdir/usr/share/doc/whiplash/"
+cp -R licenses "$appdir/usr/share/doc/whiplash/"
+# linuxdeploy copies in the libraries Whiplash needs, except ones every
 # system has (like the C library and the graphics drivers).
-LDAI_OUTPUT="$bundle/skinamp-$version-$arch.AppImage" "$linuxdeploy" \
+LDAI_OUTPUT="$bundle/whiplash-$version-$arch.AppImage" "$linuxdeploy" \
     --appdir "$appdir" \
-    --executable target/release/skinamp \
-    --desktop-file packaging/linux/skinamp.desktop \
-    --icon-file target/icons/skinamp.png \
+    --executable target/release/whiplash \
+    --desktop-file packaging/linux/whiplash.desktop \
+    --icon-file target/icons/whiplash.png \
     --output appimage
 
 ls -l "$bundle"

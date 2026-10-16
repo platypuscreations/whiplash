@@ -56,7 +56,7 @@ pub fn write(presets: &[Preset]) -> Vec<u8> {
 }
 
 /// Presets offered in the equalizer's presets menu: name, preamp in dB,
-/// then the ten bands in dB. These are skinamp's own starting points (not
+/// then the ten bands in dB. These are Whiplash's own starting points (not
 /// copies of Winamp's list). Big boosts lower the preamp to avoid clipping.
 pub const BUILT_IN: &[(&str, f32, [f32; 10])] = &[
     ("Flat", 0.0, [0.0; 10]),

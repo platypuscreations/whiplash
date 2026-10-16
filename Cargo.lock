@@ -2095,33 +2095,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
-name = "skinamp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cpal",
- "ctrlc",
- "directories",
- "fastrand",
- "fontdb",
- "fontdue",
- "glutin",
- "glutin-winit",
- "image",
- "projectm",
- "raw-window-handle",
- "rfd",
- "ringbuf",
- "rustfft",
- "serde",
- "softbuffer",
- "symphonia",
- "toml",
- "winit",
- "zip",
-]
-
-[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2851,6 +2824,33 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "whiplash"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "ctrlc",
+ "directories",
+ "fastrand",
+ "fontdb",
+ "fontdue",
+ "glutin",
+ "glutin-winit",
+ "image",
+ "projectm",
+ "raw-window-handle",
+ "rfd",
+ "ringbuf",
+ "rustfft",
+ "serde",
+ "softbuffer",
+ "symphonia",
+ "toml",
+ "winit",
+ "zip",
 ]
 
 [[package]]

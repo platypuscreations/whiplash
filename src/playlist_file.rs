@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn save_and_load_round_trip() {
-        let dir = std::env::temp_dir().join(format!("skinamp-test-m3u-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("whiplash-test-m3u-{}", std::process::id()));
         fs::create_dir_all(dir.join("music")).unwrap();
         let entries = vec![
             Entry { id: 1, path: dir.join("music/a.mp3"), title: "A".into(), duration: Some(61.4), selected: false },
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn folders_are_searched_for_music() {
-        let dir = std::env::temp_dir().join(format!("skinamp-test-scan-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("whiplash-test-scan-{}", std::process::id()));
         fs::create_dir_all(dir.join("b")).unwrap();
         for file in ["a.mp3", "b/c.FLAC", "notes.txt", "._hidden.mp3"] {
             fs::write(dir.join(file), b"").unwrap();

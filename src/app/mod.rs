@@ -203,7 +203,7 @@ pub struct App {
     menu: Option<Menu>,
     /// When the pop-up menu opened (see `MENU_GRACE`).
     menu_opened_at: Option<Instant>,
-    /// Log window events to the terminal (set `SKINAMP_DEBUG_EVENTS=1`).
+    /// Log window events to the terminal (set `WHIPLASH_DEBUG_EVENTS=1`).
     debug_events: bool,
     /// The skin's playlist font (loaded for the window's pixel scale), and
     /// the font for pop-up menus (loaded for the screen's scale).
@@ -227,7 +227,7 @@ pub struct App {
     #[cfg(feature = "milkdrop")]
     milkdrop: Option<crate::vis::milkdrop::MilkDrop>,
     milkdrop_open: bool,
-    /// MilkDrop was open when skinamp last quit.
+    /// MilkDrop was open when Whiplash last quit.
     reopen_milkdrop: bool,
     /// The chosen MilkDrop presets folder, if not the default one.
     milkdrop_presets: Option<PathBuf>,
@@ -312,7 +312,7 @@ impl App {
             menu_view: None,
             menu: None,
             menu_opened_at: None,
-            debug_events: std::env::var_os("SKINAMP_DEBUG_EVENTS").is_some(),
+            debug_events: std::env::var_os("WHIPLASH_DEBUG_EVENTS").is_some(),
             pl_font: None,
             menu_font: None,
             player: Player::new(),
@@ -956,7 +956,7 @@ impl ApplicationHandler<UserEvent> for App {
         let main_position = self.saved_positions.main.map(|[x, y]| PhysicalPosition::new(x, y));
         let (width, height) = self.skin_size(Kind::Main);
         let show = Show { visible: true, active: true, position: main_position };
-        self.main_view = Some(View::new(event_loop, "skinamp", width, height, zoom, show));
+        self.main_view = Some(View::new(event_loop, "Whiplash Player", width, height, zoom, show));
         // A saved position on a screen that's no longer connected is dropped.
         if let Some([x, y]) = self.saved_positions.main
             && !self.on_screen(x, y)

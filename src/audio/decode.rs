@@ -216,7 +216,7 @@ mod tests {
     }
 
     fn temp_wav(name: &str, rate: u32, channels: u16, frames: u32) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("skinamp-test-{}-{name}.wav", std::process::id()));
+        let path = std::env::temp_dir().join(format!("whiplash-test-{}-{name}.wav", std::process::id()));
         write_wav(&path, rate, channels, frames);
         path
     }
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn non_audio_file_is_an_error() {
-        let path = std::env::temp_dir().join(format!("skinamp-test-{}.txt", std::process::id()));
+        let path = std::env::temp_dir().join(format!("whiplash-test-{}.txt", std::process::id()));
         std::fs::write(&path, "hello").unwrap();
         assert!(Track::open(&path).is_err());
         std::fs::remove_file(path).ok();

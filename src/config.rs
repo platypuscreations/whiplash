@@ -1,8 +1,8 @@
 //! Settings saved between runs.
 //!
 //! They live in a small text file, `settings.toml`, in the system's usual
-//! place for app settings (`~/Library/Application Support/skinamp` on
-//! macOS, `~/.config/skinamp` on Linux). The playlist is saved next to it
+//! place for app settings (`~/Library/Application Support/whiplash` on
+//! macOS, `~/.config/whiplash` on Linux). The playlist is saved next to it
 //! as `playlist.m3u`, and skins dropped into the `Skins` folder there show
 //! up in the skin browser.
 //!
@@ -96,12 +96,12 @@ impl Default for EqualizerConfig {
 }
 
 /// The folder that holds the settings, playlist and skins. Setting
-/// `SKINAMP_CONFIG_DIR` uses another folder (handy for testing).
+/// `WHIPLASH_CONFIG_DIR` uses another folder (handy for testing).
 pub fn folder() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("SKINAMP_CONFIG_DIR") {
+    if let Some(dir) = std::env::var_os("WHIPLASH_CONFIG_DIR") {
         return Some(PathBuf::from(dir));
     }
-    directories::ProjectDirs::from("", "", "skinamp").map(|dirs| dirs.config_dir().to_path_buf())
+    directories::ProjectDirs::from("", "", "whiplash").map(|dirs| dirs.config_dir().to_path_buf())
 }
 
 pub fn playlist_path() -> Option<PathBuf> {
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let path = std::env::temp_dir().join(format!("skinamp-test-settings-{}.toml", std::process::id()));
+        let path = std::env::temp_dir().join(format!("whiplash-test-settings-{}.toml", std::process::id()));
         let mut config = Config { volume: 0.3, shuffle: true, visualizer: Mode::Oscilloscope, ..Config::default() };
         config.windows.main = Some([100, -20]);
         config.equalizer.bands[3] = 80.0;

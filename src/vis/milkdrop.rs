@@ -6,7 +6,7 @@
 //! the plain pixel buffer the skinned windows use. Each frame we hand it
 //! the sound played since the last frame and ask it to draw.
 //!
-//! Presets (`.milk` files) aren't included; skinamp reads them from a folder
+//! Presets (`.milk` files) aren't included; Whiplash reads them from a folder
 //! you choose. projectM's "Cream of the Crop" pack is a good start:
 //! https://github.com/projectM-visualizer/presets-cream-of-the-crop
 

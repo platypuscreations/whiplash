@@ -1,13 +1,13 @@
 # Third-party notices
 
-skinamp is licensed under the GNU General Public License, version 3 or (at
+Whiplash is licensed under the GNU General Public License, version 3 or (at
 your option) any later version; see `LICENSE`. It includes or is based on
 the following works, under their own licenses.
 
 ## projectM
 
 MilkDrop visualizations are rendered by projectM, which is compiled into
-skinamp.
+Whiplash.
 
 - **libprojectM** 4.1.3: GNU Lesser General Public License 2.1
   (`licenses/LGPL-2.1.txt`). Copyright the projectM team and contributors.
@@ -15,8 +15,8 @@ skinamp.
 - **projectm** and **projectm-sys** Rust crates: GNU Lesser General Public
   License 3.0 or later (`licenses/LGPL-3.0.txt`, which builds on the GPL in
   `LICENSE`). Source: https://github.com/projectM-visualizer/projectm-rs.
-  skinamp uses a modified copy of the `projectm` crate; its source and a
-  description of the changes are in `vendor/projectm` in skinamp's source.
+  Whiplash uses a modified copy of the `projectm` crate; its source and a
+  description of the changes are in `vendor/projectm` in Whiplash's source.
 
 libprojectM bundles these components:
 
@@ -26,8 +26,8 @@ libprojectM bundles these components:
 - **GLM** (OpenGL Mathematics): MIT License, copyright G-Truc Creation.
 - **SOIL2** and the **stb** image libraries: public domain.
 
-The full source of skinamp, including everything needed to rebuild it with a
-modified projectM, is available from skinamp's source repository.
+The full source of Whiplash, including everything needed to rebuild it with a
+modified projectM, is available at https://github.com/platypuscreations/whiplash.
 
 ## Webamp
 
@@ -61,6 +61,6 @@ The `.eqf` equalizer preset format follows the description in Webamp's
 
 ## Rust crates
 
-skinamp is built from the Rust crates below (on every platform it supports;
+Whiplash is built from the Rust crates below (on every platform it supports;
 any one build uses a subset). Each crate's full license text is included in
 its source, available from https://crates.io.

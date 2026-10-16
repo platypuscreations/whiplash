@@ -1,6 +1,6 @@
-//! skinamp: a music player compatible with classic Winamp 2.x skins.
+//! Whiplash Player: a music player compatible with classic Winamp 2.x skins.
 //!
-//! Usage: `skinamp [skin.wsz] [music files, folders or playlists...]`. Skins
+//! Usage: `whiplash [skin.wsz] [music files, folders or playlists...]`. Skins
 //! and music can also be dropped onto the windows.
 
 mod app;

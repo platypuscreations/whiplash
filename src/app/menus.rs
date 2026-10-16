@@ -97,7 +97,7 @@ impl App {
             Item::new("MilkDrop presets folder...", Action::ChoosePresetsFolder),
             Item::separator(),
             Item::new("File info...", Action::FileInfo),
-            Item::new("About skinamp...", Action::About),
+            Item::new("About Whiplash Player...", Action::About),
             Item::separator(),
             Item::new("Exit", Action::Exit),
         ];
@@ -225,9 +225,9 @@ impl App {
             Action::FileInfo => self.show_file_info(),
             Action::About => {
                 rfd::MessageDialog::new()
-                    .set_title("About skinamp")
+                    .set_title("About Whiplash Player")
                     .set_description(
-                        "skinamp: a music player for classic Winamp 2.x skins.\n\n\
+                        "Whiplash Player: a music player for classic Winamp 2.x skins.\n\n\
                          Copyright © 2026 Luke Hindman. Free software under the GNU \
                          General Public License, version 3 or later.\n\n\
                          Skin layout and visualizer behavior follow Webamp by Jordan \

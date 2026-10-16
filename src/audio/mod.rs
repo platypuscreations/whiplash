@@ -397,7 +397,7 @@ mod tests {
 /// only runs on request:
 ///
 /// ```sh
-/// SKINAMP_TEST_AUDIO=path/to/folder cargo test -- --ignored --nocapture
+/// WHIPLASH_TEST_AUDIO=path/to/folder cargo test -- --ignored --nocapture
 /// ```
 #[cfg(test)]
 mod device_tests {
@@ -406,7 +406,7 @@ mod device_tests {
     #[test]
     #[ignore]
     fn plays_pauses_and_seeks_real_files() {
-        let dir = std::env::var("SKINAMP_TEST_AUDIO").expect("set SKINAMP_TEST_AUDIO to a folder of audio files");
+        let dir = std::env::var("WHIPLASH_TEST_AUDIO").expect("set WHIPLASH_TEST_AUDIO to a folder of audio files");
         let mut files: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).collect();
         files.sort();
         let mut player = Player::new();

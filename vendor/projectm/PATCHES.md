@@ -2,10 +2,10 @@
 
 This is version 3.1.2 of the [`projectm`](https://crates.io/crates/projectm)
 crate (LGPL-3.0-or-later, https://github.com/projectM-visualizer/projectm-rs),
-used by skinamp through `[patch.crates-io]` in skinamp's `Cargo.toml`. Only
+used by Whiplash through `[patch.crates-io]` in Whiplash's `Cargo.toml`. Only
 the source, tests, license and readme are included.
 
-Changes in `src/core.rs`, marked "skinamp patch":
+Changes in `src/core.rs`, marked "whiplash patch":
 
 - C strings use the platform's `c_char` instead of a hard-coded `i8`. On ARM
   Linux `char` is unsigned, and the original didn't compile there.

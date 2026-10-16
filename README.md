@@ -1,6 +1,6 @@
-# skinamp
+# Whiplash Player
 
-A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.wsz`).
+A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.wsz`). Whiplash (`whiplash` for short) lives at <https://github.com/platypuscreations/whiplash>.
 
 Status: phase 8 (packaging). The main window renders from any classic skin, plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A), and shows the classic spectrum analyzer or oscilloscope in the skin's colors. The equalizer window has a 10-band EQ with preamp and loads and saves Winamp `.eqf` presets. The playlist window is resizable, uses the skin's colors and font, and reads and writes M3U and PLS playlists. Windows snap and dock together, have shade modes, and everything is remembered between runs. MilkDrop presets play in their own window through projectM.
 
@@ -10,11 +10,11 @@ Needs Rust, plus CMake and a C++ compiler for projectM (MilkDrop), which is comp
 
 ## Packaging
 
-- **macOS:** `packaging/macos/build-app.sh --dmg` makes `skinamp.app` and a disk image in `target/release/bundle` (needs `brew install cmake librsvg`). The app is signed ad hoc, so on another Mac it opens with a right-click → Open the first time.
+- **macOS:** `packaging/macos/build-app.sh --dmg` makes `Whiplash Player.app` and a disk image in `target/release/bundle` (needs `brew install cmake librsvg`). The app is signed ad hoc, so on another Mac it opens with a right-click → Open the first time.
 - **Linux:** `packaging/linux/build-packages.sh` makes a `.deb` and an AppImage (the script lists what to install first). Or build them in Docker from any computer:
   ```sh
-  docker build -t skinamp-linux packaging/linux
-  docker run --rm -v "$PWD":/src:ro -v "$PWD/dist":/out skinamp-linux
+  docker build -t whiplash-linux packaging/linux
+  docker run --rm -v "$PWD":/src:ro -v "$PWD/dist":/out whiplash-linux
   ```
 - **GitHub Actions** (`.github/workflows/build.yml`) tests on macOS and Ubuntu and builds all three packages on every push.
 
@@ -61,12 +61,12 @@ cargo run -- --render-to out.bmp path/to/skin.wsz  # save a screenshot without o
 ```sh
 cargo test
 # Also play real files through the sound card (needs an audio device):
-SKINAMP_TEST_AUDIO=path/to/folder cargo test -- --ignored --nocapture
+WHIPLASH_TEST_AUDIO=path/to/folder cargo test -- --ignored --nocapture
 ```
 
 ## Settings and skins
 
-Settings, window positions and the playlist are saved when skinamp quits (including with Ctrl+C in a terminal), in `~/Library/Application Support/skinamp` on macOS or `~/.config/skinamp` on Linux. Set `SKINAMP_CONFIG_DIR` to use a different folder.
+Settings, window positions and the playlist are saved when Whiplash quits (including with Ctrl+C in a terminal), in `~/Library/Application Support/whiplash` on macOS or `~/.config/whiplash` on Linux. Set `WHIPLASH_CONFIG_DIR` to use a different folder.
 
 Skins can be found at <https://skins.webamp.org>. Put `.wsz` files in the `Skins` folder inside the settings folder (the skin browser's "Open skins folder" opens it); skins next to the current skin are listed too. Skins are other people's artwork: the `skins/` folder in this repository is ignored by git.
 
@@ -78,7 +78,7 @@ Not supported yet: non-rectangular windows from a skin's `region.txt` (the drawi
 
 Copyright © 2026 Luke Hindman.
 
-skinamp is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but without any warranty. See [LICENSE](LICENSE).
+Whiplash is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but without any warranty. See [LICENSE](LICENSE).
 
 It includes projectM (LGPL) and builds on Webamp's work (MIT) and many Rust crates: see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). After changing dependencies, run `packaging/generate-notices.sh` to update that file.
 
@@ -86,6 +86,6 @@ It includes projectM (LGPL) and builds on Webamp's work (MIT) and many Rust crat
 
 Sprite coordinates, window layout and the visualizer's look are taken from [Webamp](https://github.com/captbaritone/webamp) (MIT license) by Jordan Eldredge and contributors.
 
-MilkDrop visualizations are rendered by [projectM](https://github.com/projectM-visualizer/projectm) (LGPL 2.1), compiled into skinamp.
+MilkDrop visualizations are rendered by [projectM](https://github.com/projectM-visualizer/projectm) (LGPL 2.1), compiled into Whiplash.
 
 This project contains no code from Winamp. It is not affiliated with or endorsed by Winamp or Llama Group.

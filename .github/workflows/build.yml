@@ -23,7 +23,7 @@ jobs:
         os: [macos-latest, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -43,11 +43,11 @@ jobs:
     needs: test
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: brew install librsvg
       - run: packaging/macos/build-app.sh --dmg
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: whiplash-macos
           path: target/release/bundle/*.dmg
@@ -56,7 +56,7 @@ jobs:
     needs: test
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Install build dependencies
         run: |
@@ -64,7 +64,7 @@ jobs:
           sudo apt-get install -y cmake g++ pkg-config libasound2-dev libgl-dev libegl-dev libclang-dev librsvg2-bin file
       - run: cargo install cargo-deb --locked
       - run: packaging/linux/build-packages.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: whiplash-linux
           path: |

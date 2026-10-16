@@ -1,0 +1,72 @@
+# Checks and packages skinamp on GitHub's macOS and Linux machines.
+#
+# Every push and pull request runs the tests and lint on both systems. If
+# they pass, the macOS app (.dmg) and the Linux packages (.deb, AppImage)
+# are built and attached to the run as downloadable "artifacts".
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Ubuntu 22.04 rather than the newest, so the Linux packages also
+        # run on older distributions (they need at least its C library).
+        os: [macos-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ pkg-config libasound2-dev libgl-dev libegl-dev libclang-dev
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Lint without MilkDrop
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
+      - name: Test
+        run: cargo test
+
+  macos-app:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: brew install librsvg
+      - run: packaging/macos/build-app.sh --dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skinamp-macos
+          path: target/release/bundle/*.dmg
+
+  linux-packages:
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ pkg-config libasound2-dev libgl-dev libegl-dev libclang-dev librsvg2-bin file
+      - run: cargo install cargo-deb --locked
+      - run: packaging/linux/build-packages.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skinamp-linux
+          path: |
+            target/release/bundle/*.deb
+            target/release/bundle/*.AppImage

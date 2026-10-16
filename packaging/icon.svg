@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- skinamp's app icon: a brushed-metal tile with a little LCD spectrum
+     analyzer, in the spirit of classic skins. Drawn for a 1024 px canvas
+     using the macOS icon grid (an 824 px tile with 100 px margins). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a5070"/>
+      <stop offset="0.5" stop-color="#2a2e45"/>
+      <stop offset="1" stop-color="#151724"/>
+    </linearGradient>
+    <linearGradient id="bevel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9aa0c0"/>
+      <stop offset="1" stop-color="#2a2d40"/>
+    </linearGradient>
+    <!-- Bars run green at the bottom, through yellow, to orange-red at the
+         top. The gradient spans the whole panel, so short bars stay green. -->
+    <linearGradient id="bar" x1="0" y1="744" x2="0" y2="290" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#18a808"/>
+      <stop offset="0.45" stop-color="#9cde21"/>
+      <stop offset="0.7" stop-color="#e0b020"/>
+      <stop offset="1" stop-color="#ef3110"/>
+    </linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <rect x="10" y="10" width="4" height="4" fill="#1c2633"/>
+    </pattern>
+  </defs>
+
+  <!-- The tile, with a lighter bevel around it. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bevel)"/>
+  <rect x="112" y="112" width="800" height="800" rx="174" fill="url(#tile)"/>
+
+  <!-- The LCD panel. -->
+  <rect x="196" y="236" width="632" height="552" rx="36" fill="#05070a" stroke="#0e1018" stroke-width="10"/>
+  <rect x="216" y="256" width="592" height="512" rx="22" fill="url(#dots)"/>
+
+  <!-- Spectrum bars (heights loosely like music: strong bass, tapering off),
+       each with a peak dot hovering above it. -->
+  <g fill="url(#bar)">
+    <rect x="240" y="420" width="52" height="324"/>
+    <rect x="308" y="340" width="52" height="404"/>
+    <rect x="376" y="392" width="52" height="352"/>
+    <rect x="444" y="468" width="52" height="276"/>
+    <rect x="512" y="420" width="52" height="324"/>
+    <rect x="580" y="520" width="52" height="224"/>
+    <rect x="648" y="560" width="52" height="184"/>
+    <rect x="716" y="620" width="52" height="124"/>
+  </g>
+  <g fill="#c8c8c8">
+    <rect x="240" y="386" width="52" height="14"/>
+    <rect x="308" y="298" width="52" height="14"/>
+    <rect x="376" y="352" width="52" height="14"/>
+    <rect x="444" y="420" width="52" height="14"/>
+    <rect x="512" y="388" width="52" height="14"/>
+    <rect x="580" y="474" width="52" height="14"/>
+    <rect x="648" y="522" width="52" height="14"/>
+    <rect x="716" y="584" width="52" height="14"/>
+  </g>
+</svg>

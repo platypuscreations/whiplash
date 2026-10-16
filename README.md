@@ -2,11 +2,21 @@
 
 A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.wsz`).
 
-Status: phase 7 (MilkDrop). The main window renders from any classic skin, plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A), and shows the classic spectrum analyzer or oscilloscope in the skin's colors. The equalizer window has a 10-band EQ with preamp and loads and saves Winamp `.eqf` presets. The playlist window is resizable, uses the skin's colors and font, and reads and writes M3U and PLS playlists. Windows snap and dock together, have shade modes, and everything is remembered between runs. MilkDrop presets play in their own window through projectM.
+Status: phase 8 (packaging). The main window renders from any classic skin, plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A), and shows the classic spectrum analyzer or oscilloscope in the skin's colors. The equalizer window has a 10-band EQ with preamp and loads and saves Winamp `.eqf` presets. The playlist window is resizable, uses the skin's colors and font, and reads and writes M3U and PLS playlists. Windows snap and dock together, have shade modes, and everything is remembered between runs. MilkDrop presets play in their own window through projectM.
 
 ## Building
 
 Needs Rust, plus CMake and a C++ compiler for projectM (MilkDrop), which is compiled from source as part of the build (the first build takes a minute or so). On macOS, `xcode-select --install` and `brew install cmake` cover it. To build without MilkDrop: `cargo build --no-default-features`.
+
+## Packaging
+
+- **macOS:** `packaging/macos/build-app.sh --dmg` makes `skinamp.app` and a disk image in `target/release/bundle` (needs `brew install cmake librsvg`). The app is signed ad hoc, so on another Mac it opens with a right-click → Open the first time.
+- **Linux:** `packaging/linux/build-packages.sh` makes a `.deb` and an AppImage (the script lists what to install first). Or build them in Docker from any computer:
+  ```sh
+  docker build -t skinamp-linux packaging/linux
+  docker run --rm -v "$PWD":/src:ro -v "$PWD/dist":/out skinamp-linux
+  ```
+- **GitHub Actions** (`.github/workflows/build.yml`) tests on macOS and Ubuntu and builds all three packages on every push.
 
 ## Running
 

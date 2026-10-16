@@ -24,6 +24,9 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp target/release/skinamp "$app/Contents/MacOS/skinamp"
 sed "s/@VERSION@/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
+# The license, and the notices and license texts for what's included.
+cp LICENSE THIRD-PARTY-NOTICES.md "$app/Contents/Resources/"
+cp -R licenses "$app/Contents/Resources/"
 
 # The icon: draw the SVG at each size macOS wants, then pack them.
 work=$(mktemp -d)

@@ -228,8 +228,11 @@ impl App {
                     .set_title("About skinamp")
                     .set_description(
                         "skinamp: a music player for classic Winamp 2.x skins.\n\n\
+                         Copyright © 2026 Luke Hindman. Free software under the GNU \
+                         General Public License, version 3 or later.\n\n\
                          Skin layout and visualizer behavior follow Webamp by Jordan \
-                         Eldredge and contributors (MIT license).\n\n\
+                         Eldredge and contributors (MIT license). MilkDrop \
+                         visualizations are rendered by projectM (LGPL).\n\n\
                          Not affiliated with Winamp or Llama Group.",
                     )
                     .show();

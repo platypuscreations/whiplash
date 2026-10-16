@@ -1721,8 +1721,6 @@ dependencies = [
 [[package]]
 name = "projectm"
 version = "3.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a81ed6e24cd4ca8ceaa5421127abd1b6a0a1ff9a96c397377dfd4a93e867cabb"
 dependencies = [
  "libc",
  "projectm-sys",

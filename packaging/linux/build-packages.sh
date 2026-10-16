@@ -42,6 +42,10 @@ fi
 export APPIMAGE_EXTRACT_AND_RUN=1
 appdir=target/AppDir
 rm -rf "$appdir"
+# The license, and the notices and license texts for what's included.
+mkdir -p "$appdir/usr/share/doc/skinamp"
+cp LICENSE THIRD-PARTY-NOTICES.md "$appdir/usr/share/doc/skinamp/"
+cp -R licenses "$appdir/usr/share/doc/skinamp/"
 # linuxdeploy copies in the libraries skinamp needs, except ones every
 # system has (like the C library and the graphics drivers).
 LDAI_OUTPUT="$bundle/skinamp-$version-$arch.AppImage" "$linuxdeploy" \

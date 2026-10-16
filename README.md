@@ -74,6 +74,14 @@ MilkDrop presets (`.milk` files) aren't included. Put them in the `Presets` fold
 
 Not supported yet: non-rectangular windows from a skin's `region.txt` (the drawing library can't make parts of a window see-through on macOS) and internet streams.
 
+## License
+
+Copyright © 2026 Luke Hindman.
+
+skinamp is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but without any warranty. See [LICENSE](LICENSE).
+
+It includes projectM (LGPL) and builds on Webamp's work (MIT) and many Rust crates: see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). After changing dependencies, run `packaging/generate-notices.sh` to update that file.
+
 ## Credits
 
 Sprite coordinates, window layout and the visualizer's look are taken from [Webamp](https://github.com/captbaritone/webamp) (MIT license) by Jordan Eldredge and contributors.

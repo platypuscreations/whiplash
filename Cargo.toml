@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "A music player for classic Winamp skins, with MilkDrop visualizations"
 authors = ["Luke Hindman"]
+license = "GPL-3.0-or-later"
 
 # Settings for building a .deb package with `cargo deb` (see
 # packaging/linux/build-packages.sh).
@@ -22,6 +23,8 @@ assets = [
     ["packaging/linux/skinamp.desktop", "usr/share/applications/", "644"],
     ["target/icons/skinamp.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
     ["README.md", "usr/share/doc/skinamp/", "644"],
+    ["THIRD-PARTY-NOTICES.md", "usr/share/doc/skinamp/", "644"],
+    ["licenses/*", "usr/share/doc/skinamp/licenses/", "644"],
 ]
 
 [dependencies]
@@ -46,6 +49,10 @@ symphonia = { version = "0.6.1", features = ["all"] }
 toml = "1.1.8"
 winit = "0.30"
 zip = { version = "9.0.3", default-features = false, features = ["deflate", "deflate64", "bzip2", "legacy-zip"] }
+
+# A locally fixed copy of the projectm crate (see vendor/projectm/PATCHES.md).
+[patch.crates-io]
+projectm = { path = "vendor/projectm" }
 
 # Optimize dependencies even in debug builds: unoptimized audio decoding can
 # be too slow to keep up with real-time playback.

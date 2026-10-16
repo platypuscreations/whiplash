@@ -868,12 +868,24 @@ impl App {
         }
     }
 
-    /// Files dropped on a window: skins change the skin; music dropped on
-    /// the playlist is added, and anywhere else replaces the playlist.
+    /// Files dropped on a window: skins move into the Skins folder and
+    /// change the skin; music dropped on the playlist is added, and anywhere
+    /// else replaces the playlist.
     fn file_dropped(&mut self, path: PathBuf, kind: Kind) {
         if is_skin(&path) {
             match open_skin(&path) {
-                Ok(skin) => self.set_skin(skin, Some(path)),
+                Ok(skin) => {
+                    // A skin that can't be moved still works from where it is.
+                    let path = match config::skins_folder().map(|folder| config::move_skin_into(&path, &folder)) {
+                        Some(Ok(moved)) => moved,
+                        Some(Err(err)) => {
+                            eprintln!("{}: {err:#}", path.display());
+                            path
+                        }
+                        None => path,
+                    };
+                    self.set_skin(skin, Some(path));
+                }
                 Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
             }
             return;

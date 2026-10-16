@@ -123,6 +123,50 @@ pub fn skins_folder() -> Option<PathBuf> {
     Some(skins)
 }
 
+/// Moves a skin into `folder` so it keeps working wherever the original
+/// was, and returns its new place. A skin already in the folder stays put;
+/// one with the same name as a different skin there gets a numbered name,
+/// and a copy of a skin already there is just removed.
+pub fn move_skin_into(path: &Path, folder: &Path) -> Result<PathBuf> {
+    let name = path.file_name().context("not a file")?;
+    if path.parent().and_then(|p| p.canonicalize().ok()) == folder.canonicalize().ok() {
+        return Ok(path.to_path_buf());
+    }
+    let mut dest = folder.join(name);
+    let stem = path.file_stem().unwrap_or(name).to_string_lossy().into_owned();
+    let ext = path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    for n in 2.. {
+        if !dest.exists() {
+            break;
+        }
+        if path.is_file() && dest.is_file() && fs::read(path)? == fs::read(&dest)? {
+            fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
+            return Ok(dest);
+        }
+        dest = folder.join(format!("{stem} ({n}){ext}"));
+    }
+    // Renaming fails across disks, so fall back to copying and deleting.
+    if fs::rename(path, &dest).is_err() {
+        copy_all(path, &dest).with_context(|| format!("copying {} to {}", path.display(), folder.display()))?;
+        let removed = if path.is_dir() { fs::remove_dir_all(path) } else { fs::remove_file(path) };
+        removed.with_context(|| format!("removing {}", path.display()))?;
+    }
+    Ok(dest)
+}
+
+/// Copies a file, or a folder and everything in it.
+fn copy_all(from: &Path, to: &Path) -> std::io::Result<()> {
+    if !from.is_dir() {
+        return fs::copy(from, to).map(|_| ());
+    }
+    fs::create_dir(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        copy_all(&entry.path(), &to.join(entry.file_name()))?;
+    }
+    Ok(())
+}
+
 impl Config {
     /// Loads the settings, or the defaults if there are none yet. A damaged
     /// file is reported and replaced by defaults rather than stopping the app.
@@ -173,6 +217,36 @@ mod tests {
         config.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path).unwrap(), Some(config));
         fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn skins_move_into_the_skins_folder() {
+        let dir = std::env::temp_dir().join(format!("whiplash-test-skins-{}", std::process::id()));
+        let (downloads, skins) = (dir.join("Downloads"), dir.join("Skins"));
+        fs::create_dir_all(&downloads).unwrap();
+        fs::create_dir_all(&skins).unwrap();
+        let dropped = downloads.join("base.wsz");
+
+        fs::write(&dropped, "one").unwrap();
+        let first = move_skin_into(&dropped, &skins).unwrap();
+        assert_eq!(first, skins.join("base.wsz"));
+        assert!(!dropped.exists());
+        assert_eq!(move_skin_into(&first, &skins).unwrap(), first); // already there
+
+        fs::write(&dropped, "one").unwrap(); // the same skin again
+        assert_eq!(move_skin_into(&dropped, &skins).unwrap(), first);
+        assert!(!dropped.exists());
+
+        fs::write(&dropped, "two").unwrap(); // a different skin, same name
+        assert_eq!(move_skin_into(&dropped, &skins).unwrap(), skins.join("base (2).wsz"));
+        assert_eq!(fs::read_to_string(&first).unwrap(), "one");
+
+        let folder = downloads.join("unpacked");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("main.bmp"), "bmp").unwrap();
+        assert_eq!(move_skin_into(&folder, &skins).unwrap(), skins.join("unpacked"));
+        assert!(skins.join("unpacked/main.bmp").exists());
+        fs::remove_dir_all(dir).ok();
     }
 
     #[test]

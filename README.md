@@ -74,8 +74,7 @@ Whiplash also plays classic Winamp skins (`.wsz` files). The [Winamp Skin Museum
 
 1. Open the skin's page in the museum: <https://skins.webamp.org/skin/2f245e741b6bd4e1a122a28489f0c7b7>. You can also search the museum for `base-2.91`.
 2. Click the **Download skin** button. Your browser saves `base-2.91.wsz`, usually in your Downloads folder.
-3. Drag `base-2.91.wsz` onto Whiplash's main window. The skin changes straight away, and Whiplash remembers it next time.
-4. To keep it, move it into Whiplash's **Skins** folder. Otherwise, deleting it from Downloads later loses the skin. Right-click the main window and choose **Skin browser...** (or press Alt+S), then **Open skins folder**, and drag the file into the folder that opens.
+3. Drag `base-2.91.wsz` onto Whiplash's main window. The skin changes straight away, and Whiplash remembers it next time. Whiplash moves the file out of Downloads into its **Skins** folder, so it's kept safe and shows up in the skin browser (Alt+S).
 
 Or download it straight into the Skins folder from a terminal:
 
@@ -99,7 +98,7 @@ Browse or search the [museum](https://skins.webamp.org/), and use the same steps
 
 - **Try before you download:** a skin's page has a button that opens it in Webamp, so you can see it in action first.
 - **Classic skins only:** Whiplash plays classic skins (`.wsz`). Winamp 3 and 5 "modern" skins (`.wal`) aren't supported.
-- **Switching skins:** the skin browser (Alt+S) lists the skins in your Skins folder and in the folder of the skin you're using, up to 40 of them. You can also drop any `.wsz` file onto Whiplash at any time.
+- **Switching skins:** the skin browser (Alt+S) lists the skins in your Skins folder and in the folder of the skin you're using, up to 40 of them. You can also drop any `.wsz` file onto Whiplash at any time; it moves into the Skins folder.
 
 Skins are their authors' artwork, shared for personal use.
 

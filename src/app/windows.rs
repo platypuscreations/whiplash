@@ -198,7 +198,7 @@ impl App {
     pub(super) fn resize_keeping_docked(&mut self, kind: Kind, new_size: PhysicalSize<u32>) {
         let Some(rect) = self.rect(kind) else {
             if let Some(view) = self.view(kind) {
-                let _ = view.window.request_inner_size(new_size);
+                view.resize(new_size);
             }
             return;
         };
@@ -212,7 +212,7 @@ impl App {
             .filter(|(_, r)| r.y >= rect.bottom())
             .collect();
         if let Some(view) = self.view(kind) {
-            let _ = view.window.request_inner_size(new_size);
+            view.resize(new_size);
         }
         for (other, r) in below {
             if let Some(view) = self.view(other) {

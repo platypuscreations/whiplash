@@ -43,7 +43,7 @@ impl App {
     /// a different control hides the tooltip and restarts the wait.
     pub(super) fn update_hover(&mut self, kind: Kind) {
         let target = self.view(kind).and_then(|view| {
-            let (x, y) = view.cursor_in_skin(self.zoom());
+            let (x, y) = view.cursor_in_skin();
             let target = match kind {
                 Kind::Main => Target::Main(main_window::hit_test(x, y, self.state.shaded)),
                 Kind::Equalizer => Target::Equalizer(eq_window::hit_test(x, y, self.eq.shaded)),
@@ -113,7 +113,7 @@ impl App {
         if let Some(view) = &mut self.tooltip_view {
             if text != self.tooltip_text {
                 view.canvas = Canvas::new(width, height);
-                let _ = view.window.request_inner_size(size);
+                view.resize(size);
                 view.window.request_redraw();
                 self.tooltip_text = text;
             }
@@ -123,11 +123,7 @@ impl App {
 
         // Tooltips never take focus from the window being used. The window
         // is sized in real pixels and drawn one canvas pixel per screen pixel.
-        let points = size.to_logical::<f64>(scale);
-        let (w, h) = (points.width.ceil() as u32, points.height.ceil() as u32);
-        let mut view = View::new(event_loop, "tooltip", w, h, 1, Show::at(position, false));
-        let _ = view.window.request_inner_size(size);
-        view.canvas = Canvas::new(width, height);
+        let view = View::new(event_loop, "tooltip", width, height, size.into(), Show::at(position, false));
         view.window.set_window_level(winit::window::WindowLevel::AlwaysOnTop);
         view.window.request_redraw();
         self.tooltip_view = Some(view);

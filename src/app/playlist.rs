@@ -3,7 +3,6 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use winit::dpi::LogicalSize;
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key, NamedKey};
 
@@ -63,7 +62,7 @@ impl App {
 
     pub(super) fn pl_mouse_down(&mut self) {
         let Some(view) = &self.pl_view else { return };
-        let (x, y) = view.cursor_in_skin(self.zoom());
+        let (x, y) = view.cursor_in_skin();
         let hit = playlist_window::hit_test(&self.pl, self.playlist.len(), x, y);
 
         // Clicking anywhere outside an open button menu closes it.
@@ -124,7 +123,7 @@ impl App {
 
     pub(super) fn pl_mouse_moved(&mut self) {
         let Some(view) = &self.pl_view else { return };
-        let (x, y) = view.cursor_in_skin(self.zoom());
+        let (x, y) = view.cursor_in_skin();
 
         if self.pl.open_menu.is_some() {
             self.pl.hovered = match playlist_window::hit_test(&self.pl, self.playlist.len(), x, y) {
@@ -155,9 +154,9 @@ impl App {
                     self.pl.width = width;
                     self.pl.height = height;
                     self.pl.scroll_to(self.pl.scroll as isize, self.playlist.len());
-                    let zoom = self.zoom();
-                    let size = LogicalSize::new(width * zoom, self.pl.window_height() * zoom);
-                    let _ = view.window.request_inner_size(size);
+                    if let Some(size) = self.window_size(Kind::Playlist) {
+                        view.resize(size);
+                    }
                 }
             }
             None => {}
@@ -166,7 +165,7 @@ impl App {
 
     pub(super) fn pl_mouse_up(&mut self, event_loop: &ActiveEventLoop) {
         let Some(view) = &self.pl_view else { return };
-        let (x, y) = view.cursor_in_skin(self.zoom());
+        let (x, y) = view.cursor_in_skin();
         let hit = playlist_window::hit_test(&self.pl, self.playlist.len(), x, y);
         self.pl.dragging_scrollbar = false;
 

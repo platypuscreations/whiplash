@@ -10,7 +10,6 @@ use crate::audio::{self, PlayState};
 use crate::config;
 use crate::eqf;
 use crate::ui::eq_window;
-use crate::ui::canvas::Canvas;
 use crate::ui::menu::{self, Action, Item, Menu};
 use crate::ui::text::Font;
 use crate::vis::Mode;
@@ -39,11 +38,7 @@ impl App {
         let Some((font, _)) = self.menu_font.as_mut() else { return };
         let (width, height) = menu.size(font, scale);
         let size = PhysicalSize::new(width, height);
-        let points = size.to_logical::<f64>(scale);
-        let (w, h) = (points.width.ceil() as u32, points.height.ceil() as u32);
-        let mut view = View::new(event_loop, "menu", w, h, 1, Show::at(position, true));
-        let _ = view.window.request_inner_size(size);
-        view.canvas = Canvas::new(width, height);
+        let view = View::new(event_loop, "menu", width, height, size.into(), Show::at(position, true));
         if self.always_on_top {
             view.window.set_window_level(winit::window::WindowLevel::AlwaysOnTop);
         }

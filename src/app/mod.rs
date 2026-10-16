@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use winit::application::ApplicationHandler;
-use winit::dpi::{LogicalSize, PhysicalPosition};
+use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize, Size};
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
@@ -110,8 +110,23 @@ impl Show {
     }
 }
 
+/// How many screen pixels each skin pixel becomes: the zoom (2 in double
+/// size) times the screen's scale factor, rounded to a whole number so every
+/// skin pixel is an equal square block. Scale factors aren't always whole
+/// numbers: on Linux a 1920x1200 laptop screen is often 1.5.
+fn pixels_per_skin_pixel(scale_factor: f64, zoom: u32) -> u32 {
+    ((scale_factor * zoom as f64).round() as u32).max(1)
+}
+
+/// The window size that shows a `width` x `height` skin layout at `zoom`.
+fn skin_window_size(width: u32, height: u32, zoom: u32, scale_factor: f64) -> PhysicalSize<u32> {
+    let pixels = pixels_per_skin_pixel(scale_factor, zoom);
+    PhysicalSize::new(width * pixels, height * pixels)
+}
+
 impl View {
-    fn new(event_loop: &ActiveEventLoop, title: &str, width: u32, height: u32, zoom: u32, show: Show) -> View {
+    /// A window showing a `width` x `height` canvas, `size` big on screen.
+    fn new(event_loop: &ActiveEventLoop, title: &str, width: u32, height: u32, size: Size, show: Show) -> View {
         let Show { visible, active, position } = show;
         let mut attributes = Window::default_attributes()
             .with_title(title)
@@ -119,7 +134,7 @@ impl View {
             .with_resizable(false)
             .with_visible(visible)
             .with_active(active)
-            .with_inner_size(LogicalSize::new(width * zoom, height * zoom));
+            .with_inner_size(size);
         if let Some(position) = position {
             attributes = attributes.with_position(position);
         }
@@ -135,17 +150,37 @@ impl View {
         }
     }
 
+    /// A window for a `width` x `height` skin layout at `zoom`.
+    fn for_skin(event_loop: &ActiveEventLoop, title: &str, width: u32, height: u32, zoom: u32, show: Show) -> View {
+        let size = LogicalSize::new(width * zoom, height * zoom);
+        let view = View::new(event_loop, title, width, height, size.into(), show);
+        // Only now is the screen's scale known: round the size to whole
+        // screen pixels per skin pixel.
+        view.resize(skin_window_size(width, height, zoom, view.window.scale_factor()));
+        view
+    }
+
+    /// Changes the window's size. Its minimum and maximum size change with
+    /// it, which keeps the user from resizing it. (On X11, winit puts back
+    /// the window's original limits whenever it moves to a screen with a
+    /// different scale, unless they're set like this, and the window
+    /// manager then holds the window to its original size.)
+    fn resize(&self, size: PhysicalSize<u32>) {
+        self.window.set_min_inner_size(None::<Size>);
+        self.window.set_max_inner_size(Some(size));
+        self.window.set_min_inner_size(Some(size));
+        let _ = self.window.request_inner_size(size);
+    }
+
     /// Copies the canvas to the screen, scaled up to fill the window.
     fn present(&mut self) -> Result<()> {
         let size = self.window.inner_size();
         let (Some(width), Some(height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
             return Ok(()); // minimized
         };
+        let scale = self.pixel_scale();
         self.surface.resize(width, height).map_err(|e| anyhow::anyhow!("{e}"))?;
         let mut buffer = self.surface.buffer_mut().map_err(|e| anyhow::anyhow!("{e}"))?;
-        // Pick the largest whole-number scale that fits, so every skin pixel
-        // becomes an equal square block (2x on Retina, 4x in double size).
-        let scale = (size.width / self.canvas.width).min(size.height / self.canvas.height).max(1);
         self.canvas.scale_into(&mut buffer, size.width, size.height, scale);
         buffer.present().map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(())
@@ -180,10 +215,9 @@ impl View {
     }
 
     /// The mouse position in the window's unscaled skin layout.
-    fn cursor_in_skin(&self, zoom: u32) -> (i32, i32) {
-        let logical = self.cursor.to_logical::<f64>(self.window.scale_factor());
-        let zoom = zoom as f64;
-        ((logical.x / zoom).floor() as i32, (logical.y / zoom).floor() as i32)
+    fn cursor_in_skin(&self) -> (i32, i32) {
+        let scale = self.pixel_scale() as f64;
+        ((self.cursor.x / scale).floor() as i32, (self.cursor.y / scale).floor() as i32)
     }
 }
 
@@ -728,7 +762,7 @@ impl App {
 
     fn main_mouse_down(&mut self) {
         let Some(view) = &self.main_view else { return };
-        let (x, y) = view.cursor_in_skin(self.zoom());
+        let (x, y) = view.cursor_in_skin();
         match main_window::hit_test(x, y, self.state.shaded) {
             Hit::TitleBar => self.title_bar_pressed(Kind::Main),
             Hit::Control(control) => self.state.pressed = Some(control),
@@ -745,7 +779,7 @@ impl App {
 
     fn main_mouse_up(&mut self, event_loop: &ActiveEventLoop) {
         let Some(view) = &self.main_view else { return };
-        let (x, y) = view.cursor_in_skin(self.zoom());
+        let (x, y) = view.cursor_in_skin();
         // A click only counts if released over the same control.
         if let Some(control) = self.state.pressed.take()
             && main_window::hit_test(x, y, self.state.shaded) == Hit::Control(control)
@@ -865,8 +899,10 @@ impl App {
         let main = self.rect(Kind::Main);
         let docked: Vec<(Kind, windows::Rect)> =
             self.docked_to(Kind::Main).into_iter().filter_map(|k| self.rect(k).map(|r| (k, r))).collect();
+        let scale = self.main_view.as_ref().map_or(1.0, |v| v.window.scale_factor());
+        let before = pixels_per_skin_pixel(scale, self.zoom());
         self.double_size = !self.double_size;
-        let factor = if self.double_size { 2.0 } else { 0.5 };
+        let factor = pixels_per_skin_pixel(scale, self.zoom()) as f64 / before as f64;
         if let Some(main) = main {
             for (kind, rect) in docked {
                 let x = main.x + ((rect.x - main.x) as f64 * factor).round() as i32;
@@ -881,16 +917,19 @@ impl App {
 
     /// Sets every window's size from its skin size and the zoom.
     fn apply_window_sizes(&self) {
-        let zoom = self.zoom();
-        for (view, (width, height)) in [
-            (&self.main_view, self.skin_size(Kind::Main)),
-            (&self.eq_view, self.skin_size(Kind::Equalizer)),
-            (&self.pl_view, self.skin_size(Kind::Playlist)),
-        ] {
-            if let Some(view) = view {
-                let _ = view.window.request_inner_size(LogicalSize::new(width * zoom, height * zoom));
+        for kind in [Kind::Main, Kind::Equalizer, Kind::Playlist] {
+            if let (Some(view), Some(size)) = (self.view(kind), self.window_size(kind)) {
+                view.resize(size);
             }
         }
+    }
+
+    /// The size a window should be on screen, from its skin size, the
+    /// zoom and its screen's scale.
+    fn window_size(&self, kind: Kind) -> Option<PhysicalSize<u32>> {
+        let (width, height) = self.skin_size(kind);
+        let scale = self.view(kind)?.window.scale_factor();
+        Some(skin_window_size(width, height, self.zoom(), scale))
     }
 
     /// A window's size in skin pixels, allowing for shade mode.
@@ -914,10 +953,7 @@ impl App {
             Kind::Playlist => self.pl.shaded = !self.pl.shaded,
             Kind::Menu => return,
         }
-        let (width, height) = self.skin_size(kind);
-        let zoom = self.zoom();
-        let Some(scale) = self.view(kind).map(|v| v.window.scale_factor()) else { return };
-        let size = LogicalSize::new(width * zoom, height * zoom).to_physical(scale);
+        let Some(size) = self.window_size(kind) else { return };
         self.resize_keeping_docked(kind, size);
         self.redraw_all();
     }
@@ -956,7 +992,7 @@ impl ApplicationHandler<UserEvent> for App {
         let main_position = self.saved_positions.main.map(|[x, y]| PhysicalPosition::new(x, y));
         let (width, height) = self.skin_size(Kind::Main);
         let show = Show { visible: true, active: true, position: main_position };
-        self.main_view = Some(View::new(event_loop, "Whiplash Player", width, height, zoom, show));
+        self.main_view = Some(View::for_skin(event_loop, "Whiplash Player", width, height, zoom, show));
         // A saved position on a screen that's no longer connected is dropped.
         if let Some([x, y]) = self.saved_positions.main
             && !self.on_screen(x, y)
@@ -966,9 +1002,9 @@ impl ApplicationHandler<UserEvent> for App {
         }
         // The other windows are created hidden and shown when opened.
         let (width, height) = self.skin_size(Kind::Equalizer);
-        self.eq_view = Some(View::new(event_loop, "Equalizer", width, height, zoom, Show::HIDDEN));
+        self.eq_view = Some(View::for_skin(event_loop, "Equalizer", width, height, zoom, Show::HIDDEN));
         let (width, height) = self.skin_size(Kind::Playlist);
-        self.pl_view = Some(View::new(event_loop, "Playlist", width, height, zoom, Show::HIDDEN));
+        self.pl_view = Some(View::for_skin(event_loop, "Playlist", width, height, zoom, Show::HIDDEN));
         if self.saved_positions.equalizer_open {
             self.set_equalizer_open(true);
         }
@@ -1062,7 +1098,6 @@ impl ApplicationHandler<UserEvent> for App {
             },
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::CursorMoved { position, .. } => {
-                let zoom = self.zoom();
                 let Some(view) = self.view_mut(kind) else { return };
                 view.cursor = position;
                 if self.continue_window_drag(kind) {
@@ -1070,7 +1105,7 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 self.update_hover(kind);
                 let Some(view) = self.view(kind) else { return };
-                let (x, y) = view.cursor_in_skin(zoom);
+                let (x, y) = view.cursor_in_skin();
                 match kind {
                     Kind::Main if self.state.dragging.is_some() => self.main_drag_to(x),
                     Kind::Equalizer if self.eq.dragging.is_some() => self.eq_drag_to(y),
@@ -1132,6 +1167,16 @@ impl ApplicationHandler<UserEvent> for App {
                 } else {
                     self.key_pressed(&logical_key, kind, event_loop);
                 }
+            }
+            // Moved to a screen with a different scale: keep whole screen
+            // pixels per skin pixel, rather than the system's choice of size.
+            WindowEvent::ScaleFactorChanged { scale_factor, mut inner_size_writer } if kind != Kind::Menu => {
+                let (width, height) = self.skin_size(kind);
+                let size = skin_window_size(width, height, self.zoom(), scale_factor);
+                if let Some(view) = self.view(kind) {
+                    view.resize(size);
+                }
+                let _ = inner_size_writer.request_inner_size(size);
             }
             WindowEvent::Resized(_) => {}
             _ => return,
@@ -1196,4 +1241,20 @@ fn format_time(seconds: u32) -> String {
 /// "60hz", "1khz", "14khz" — how Winamp labels its bands.
 fn format_hz(hz: f64) -> String {
     if hz >= 1000.0 { format!("{}khz", hz / 1000.0) } else { format!("{hz}hz") }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skin_pixels_are_whole_screen_pixels() {
+        assert_eq!(pixels_per_skin_pixel(1.0, 1), 1);
+        assert_eq!(pixels_per_skin_pixel(2.0, 2), 4); // Retina, double size
+        assert_eq!(pixels_per_skin_pixel(1.5, 1), 2);
+        assert_eq!(pixels_per_skin_pixel(1.5, 2), 3);
+        assert_eq!(pixels_per_skin_pixel(1.25, 1), 1);
+        assert_eq!(pixels_per_skin_pixel(0.5, 1), 1); // never smaller than the skin
+        assert_eq!(skin_window_size(275, 116, 1, 1.5), PhysicalSize::new(550, 232));
+    }
 }

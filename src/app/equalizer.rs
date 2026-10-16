@@ -57,7 +57,7 @@ impl App {
 
     pub(super) fn eq_mouse_down(&mut self) {
         let Some(view) = &self.eq_view else { return };
-        let (x, y) = view.cursor_in_skin(self.zoom());
+        let (x, y) = view.cursor_in_skin();
         match eq_window::hit_test(x, y, self.eq.shaded) {
             eq_window::Hit::TitleBar => self.title_bar_pressed(Kind::Equalizer),
             // The tiny sliders in shade mode set the player's volume and
@@ -81,7 +81,7 @@ impl App {
 
     pub(super) fn eq_mouse_up(&mut self, event_loop: &ActiveEventLoop) {
         let Some(view) = &self.eq_view else { return };
-        let (x, y) = view.cursor_in_skin(self.zoom());
+        let (x, y) = view.cursor_in_skin();
         self.eq.dragging = None;
         if self.eq.shaded {
             self.state.dragging = None;

@@ -60,6 +60,11 @@ objc2 = "0.6.5"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSString", "NSURL"] }
 
+# Asking the X server where the mouse pointer is, for dragging windows on
+# Linux (see src/app/pointer.rs). The version winit uses.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+x11rb = "0.13.2"
+
 # A locally fixed copy of the projectm crate (see vendor/projectm/PATCHES.md).
 [patch.crates-io]
 projectm = { path = "vendor/projectm" }

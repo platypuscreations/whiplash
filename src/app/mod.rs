@@ -9,6 +9,7 @@ mod equalizer;
 mod menus;
 mod milkdrop;
 mod playlist;
+mod pointer;
 mod tooltips;
 mod windows;
 
@@ -285,6 +286,8 @@ pub struct App {
     proxy: EventLoopProxy<UserEvent>,
     /// A file dialog is open; only one is opened at a time.
     dialog_open: bool,
+    /// For asking where the mouse pointer is, made on the first window drag.
+    pointer: std::cell::OnceCell<Option<pointer::Pointer>>,
     /// Windows that have been on screen, whose positions are worth saving.
     shown: Vec<Kind>,
     /// A temporary message for the marquee, and when it was set.
@@ -375,6 +378,7 @@ impl App {
             skin_choices: Vec::new(),
             proxy,
             dialog_open: false,
+            pointer: std::cell::OnceCell::new(),
             last_title_click: None,
             #[cfg(feature = "milkdrop")]
             milkdrop: None,

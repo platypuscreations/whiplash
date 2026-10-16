@@ -151,12 +151,15 @@ impl App {
         let Some(view) = self.view(kind) else { return false };
         let size = view.window.outer_size();
         let scale = view.window.scale_factor();
-        // The mouse's screen position, from where we put the window.
-        let screen_x = drag.position.x as f64 + view.cursor.x;
-        let screen_y = drag.position.y as f64 + view.cursor.y;
+        // The mouse's screen position: from the system if it can say (see
+        // `pointer`), or else from where we put the window.
+        let pointer = self.pointer.get_or_init(super::pointer::Pointer::connect).as_ref().and_then(|p| p.position());
+        let screen = pointer.unwrap_or_else(|| {
+            PhysicalPosition::new(drag.position.x as f64 + view.cursor.x, drag.position.y as f64 + view.cursor.y)
+        });
         let wanted = Rect {
-            x: (screen_x - drag.grab.x).round() as i32,
-            y: (screen_y - drag.grab.y).round() as i32,
+            x: (screen.x - drag.grab.x).round() as i32,
+            y: (screen.y - drag.grab.y).round() as i32,
             w: size.width as i32,
             h: size.height as i32,
         };

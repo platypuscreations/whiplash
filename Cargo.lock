@@ -2855,6 +2855,7 @@ dependencies = [
  "symphonia",
  "toml",
  "winit",
+ "x11rb",
  "zip",
 ]
 

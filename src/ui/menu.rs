@@ -49,6 +49,8 @@ pub enum Action {
     ToggleDoubleSize,
     ToggleAlwaysOnTop,
     Visualizer(crate::vis::Mode),
+    ToggleMilkDrop,
+    ChoosePresetsFolder,
     FileInfo,
     About,
     Exit,

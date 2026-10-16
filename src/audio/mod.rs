@@ -75,16 +75,31 @@ pub struct History {
     samples: Vec<f32>,
     /// Where the next sample will be written; the oldest sample is here too.
     next: usize,
+    /// How many samples have ever been pushed, so readers can ask for only
+    /// the ones they haven't seen.
+    total: u64,
 }
 
 impl History {
     fn new() -> History {
-        History { samples: vec![0.0; HISTORY_LEN], next: 0 }
+        History { samples: vec![0.0; HISTORY_LEN], next: 0, total: 0 }
     }
 
     fn push(&mut self, sample: f32) {
         self.samples[self.next] = sample;
         self.next = (self.next + 1) % self.samples.len();
+        self.total += 1;
+    }
+
+    /// Appends the samples pushed since `cursor` to `out` (at most the
+    /// whole history, if the reader fell far behind) and moves `cursor`
+    /// up to date.
+    fn since(&self, cursor: &mut u64, out: &mut Vec<f32>) {
+        let len = self.samples.len();
+        let count = (self.total.saturating_sub(*cursor)).min(len as u64) as usize;
+        let start = self.next + len - count;
+        out.extend((0..count).map(|i| self.samples[(start + i) % len]));
+        *cursor = self.total;
     }
 
     /// Fills `out` with the most recent samples, oldest first.
@@ -285,6 +300,15 @@ impl Player {
         Some(rate)
     }
 
+    /// Appends the sound played since `cursor` (mono) to `out`, for
+    /// visualizers that need every sample once, like MilkDrop.
+    #[cfg_attr(not(feature = "milkdrop"), allow(dead_code))]
+    pub fn samples_since(&self, cursor: &mut u64, out: &mut Vec<f32>) {
+        if let Ok(history) = self.settings.history.lock() {
+            history.since(cursor, out);
+        }
+    }
+
     /// True once the current track has played to its end.
     pub fn finished(&self) -> bool {
         self.playback.as_ref().is_some_and(|p| p.shared.finished.load(Relaxed))
@@ -326,6 +350,33 @@ mod tests {
         history.latest(&mut out);
         let last = (HISTORY_LEN + 9) as f32;
         assert_eq!(out, [last - 2.0, last - 1.0, last]);
+    }
+
+    #[test]
+    fn readers_get_each_new_sample_once() {
+        let mut history = History::new();
+        let mut cursor = 0;
+        let mut out = Vec::new();
+        for i in 0..5 {
+            history.push(i as f32);
+        }
+        history.since(&mut cursor, &mut out);
+        assert_eq!(out, [0.0, 1.0, 2.0, 3.0, 4.0]);
+        out.clear();
+        history.since(&mut cursor, &mut out);
+        assert!(out.is_empty());
+        history.push(5.0);
+        history.since(&mut cursor, &mut out);
+        assert_eq!(out, [5.0]);
+
+        // A reader that falls far behind gets the most recent history only.
+        out.clear();
+        for i in 0..HISTORY_LEN * 2 {
+            history.push(i as f32);
+        }
+        history.since(&mut cursor, &mut out);
+        assert_eq!(out.len(), HISTORY_LEN);
+        assert_eq!(*out.last().unwrap(), (HISTORY_LEN * 2 - 1) as f32);
     }
 
     #[test]

@@ -11,7 +11,11 @@ directories = "6.0.0"
 fastrand = "2.5.0"
 fontdb = "0.24.0"
 fontdue = "0.9.4"
+glutin = { version = "0.32.3", optional = true }
+glutin-winit = { version = "0.5.0", optional = true }
 image = { version = "0.25.10", default-features = false, features = ["bmp"] }
+projectm = { version = "3.1.2", features = ["static", "playlist"], optional = true }
+raw-window-handle = { version = "0.6.2", optional = true }
 rfd = "0.17.2"
 ringbuf = "0.5.3"
 rustfft = "6.4.1"
@@ -26,3 +30,15 @@ zip = { version = "9.0.3", default-features = false, features = ["deflate", "def
 # be too slow to keep up with real-time playback.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Except projectM: its build script expects a CMake "Debug" build (with a
+# "d" suffix on the library name) in debug builds, which needs opt-level 0.
+[profile.dev.package.projectm-sys]
+opt-level = 0
+
+[features]
+# MilkDrop visualizations through projectM. Building it compiles projectM's
+# C++ source, which needs CMake and a C++ compiler. Build without it using
+# `cargo build --no-default-features`.
+default = ["milkdrop"]
+milkdrop = ["dep:projectm", "dep:glutin", "dep:glutin-winit", "dep:raw-window-handle"]

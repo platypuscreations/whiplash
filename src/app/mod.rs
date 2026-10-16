@@ -6,6 +6,7 @@
 
 mod equalizer;
 mod menus;
+mod milkdrop;
 mod playlist;
 mod tooltips;
 mod windows;
@@ -221,6 +222,18 @@ pub struct App {
     /// Per-song equalizer settings for the EQ's "auto" button.
     auto_presets: std::collections::HashMap<String, [f32; 11]>,
     window_drag: Option<WindowDrag>,
+    /// The MilkDrop window, created the first time it's opened and then
+    /// kept (hidden when closed), since projectM can't be cleanly restarted.
+    #[cfg(feature = "milkdrop")]
+    milkdrop: Option<crate::vis::milkdrop::MilkDrop>,
+    milkdrop_open: bool,
+    /// MilkDrop was open when skinamp last quit.
+    reopen_milkdrop: bool,
+    /// The chosen MilkDrop presets folder, if not the default one.
+    milkdrop_presets: Option<PathBuf>,
+    /// When the MilkDrop window was last clicked, to spot double-clicks.
+    #[cfg(feature = "milkdrop")]
+    milkdrop_last_click: Option<Instant>,
     /// The control the mouse is resting on, for its tooltip.
     hover: Option<Hover>,
     tooltip_view: Option<View>,
@@ -317,6 +330,14 @@ impl App {
             shown: vec![Kind::Main],
             skin_choices: Vec::new(),
             last_title_click: None,
+            #[cfg(feature = "milkdrop")]
+            milkdrop: None,
+            // Reopened once the other windows exist (in `resumed`).
+            milkdrop_open: false,
+            milkdrop_presets: config.milkdrop_presets.clone(),
+            reopen_milkdrop: config.milkdrop_open,
+            #[cfg(feature = "milkdrop")]
+            milkdrop_last_click: None,
             hover: None,
             tooltip_view: None,
             tooltip_text: String::new(),
@@ -372,6 +393,8 @@ impl App {
             double_size: self.double_size,
             always_on_top: self.always_on_top,
             visualizer: self.visualizer.mode,
+            milkdrop_presets: self.milkdrop_presets.clone(),
+            milkdrop_open: self.milkdrop_open,
             playlist_current: self.playlist.current_index(),
             equalizer: config::EqualizerConfig {
                 enabled: self.eq.enabled,
@@ -786,6 +809,7 @@ impl App {
             Key::Character(c) => match c.to_ascii_lowercase().as_str() {
                 "d" if self.command_key() => self.toggle_double_size(),
                 "t" if self.command_key() => self.set_always_on_top(!self.always_on_top),
+                "k" if self.command_key() => self.set_milkdrop_open(event_loop, !self.milkdrop_open),
                 "s" if self.modifiers.alt_key() => self.open_skin_browser(event_loop, kind),
                 "g" if self.modifiers.alt_key() => self.set_equalizer_open(!self.state.equalizer_open),
                 "e" if self.modifiers.alt_key() => self.set_playlist_open(!self.state.playlist_open),
@@ -954,6 +978,9 @@ impl ApplicationHandler<UserEvent> for App {
         if self.always_on_top {
             self.set_always_on_top(true);
         }
+        if self.reopen_milkdrop && cfg!(feature = "milkdrop") {
+            self.set_milkdrop_open(event_loop, true);
+        }
         if let Some(view) = &self.main_view {
             view.window.focus_window();
         }
@@ -982,6 +1009,10 @@ impl ApplicationHandler<UserEvent> for App {
             if matches!(event, WindowEvent::RedrawRequested) {
                 self.render_tooltip();
             }
+            return;
+        }
+        if self.is_milkdrop_window(id) {
+            self.milkdrop_event(event_loop, event);
             return;
         }
         let Some(kind) = self.kind_of(id) else { return };

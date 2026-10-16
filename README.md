@@ -2,7 +2,11 @@
 
 A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.wsz`).
 
-Status: phase 6 (window behavior). The main window renders from any classic skin, plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A), and shows the classic spectrum analyzer or oscilloscope in the skin's colors. The equalizer window has a 10-band EQ with preamp and loads and saves Winamp `.eqf` presets. The playlist window is resizable, uses the skin's colors and font, and reads and writes M3U and PLS playlists. Windows snap and dock together, have shade modes, and everything is remembered between runs.
+Status: phase 7 (MilkDrop). The main window renders from any classic skin, plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A), and shows the classic spectrum analyzer or oscilloscope in the skin's colors. The equalizer window has a 10-band EQ with preamp and loads and saves Winamp `.eqf` presets. The playlist window is resizable, uses the skin's colors and font, and reads and writes M3U and PLS playlists. Windows snap and dock together, have shade modes, and everything is remembered between runs. MilkDrop presets play in their own window through projectM.
+
+## Building
+
+Needs Rust, plus CMake and a C++ compiler for projectM (MilkDrop), which is compiled from source as part of the build (the first build takes a minute or so). On macOS, `xcode-select --install` and `brew install cmake` cover it. To build without MilkDrop: `cargo build --no-default-features`.
 
 ## Running
 
@@ -35,6 +39,9 @@ cargo run -- --render-to out.bmp path/to/skin.wsz  # save a screenshot without o
 | Rest the mouse on a control | Tooltip naming it, with its current setting |
 | Right-click, O button | Main menu |
 | Alt+S | Skin browser |
+| Ctrl+K (Cmd+K) | MilkDrop window |
+| MilkDrop: N / P / R / L, Space / Backspace | Next, previous, random preset; lock the current one |
+| MilkDrop: F, Enter, double-click / Esc | Full screen / leave full screen or close |
 | Clutter bar O / A / I / D / V | Menu, always on top, file info, double size, visualizer |
 | Drag a title bar | Move the window; windows snap together, and docked windows follow the main window |
 | Double-click a title bar, shade button | Shade mode (shrink to a strip) |
@@ -53,10 +60,14 @@ Settings, window positions and the playlist are saved when skinamp quits (includ
 
 Skins can be found at <https://skins.webamp.org>. Put `.wsz` files in the `Skins` folder inside the settings folder (the skin browser's "Open skins folder" opens it); skins next to the current skin are listed too. Skins are other people's artwork: the `skins/` folder in this repository is ignored by git.
 
-Not supported yet: non-rectangular windows from a skin's `region.txt` (the drawing library can't make parts of a window see-through on macOS), internet streams, and MilkDrop visualizations (phase 7).
+MilkDrop presets (`.milk` files) aren't included. Put them in the `Presets` folder inside the settings folder, or choose any folder from the main menu ("MilkDrop presets folder..."). projectM's curated pack is a good start: <https://github.com/projectM-visualizer/presets-cream-of-the-crop> (about 9,800 presets); its companion texture pack <https://github.com/projectM-visualizer/presets-milkdrop-texture-pack> can go in a `textures` folder inside or next to the presets folder.
+
+Not supported yet: non-rectangular windows from a skin's `region.txt` (the drawing library can't make parts of a window see-through on macOS) and internet streams.
 
 ## Credits
 
 Sprite coordinates, window layout and the visualizer's look are taken from [Webamp](https://github.com/captbaritone/webamp) (MIT license) by Jordan Eldredge and contributors.
+
+MilkDrop visualizations are rendered by [projectM](https://github.com/projectM-visualizer/projectm) (LGPL 2.1), compiled into skinamp.
 
 This project contains no code from Winamp. It is not affiliated with or endorsed by Winamp or Llama Group.

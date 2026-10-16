@@ -93,6 +93,9 @@ impl App {
             Item::new("Oscilloscope", Action::Visualizer(Mode::Oscilloscope)).checked(mode == Mode::Oscilloscope),
             Item::new("No visualization", Action::Visualizer(Mode::Off)).checked(mode == Mode::Off),
             Item::separator(),
+            Item::new("MilkDrop", Action::ToggleMilkDrop).checked(self.milkdrop_open).shortcut(&format!("{COMMAND}+K")),
+            Item::new("MilkDrop presets folder...", Action::ChoosePresetsFolder),
+            Item::separator(),
             Item::new("File info...", Action::FileInfo),
             Item::new("About skinamp...", Action::About),
             Item::separator(),
@@ -108,6 +111,8 @@ impl App {
             Item::new("Spectrum analyzer", Action::Visualizer(Mode::Analyzer)).checked(mode == Mode::Analyzer),
             Item::new("Oscilloscope", Action::Visualizer(Mode::Oscilloscope)).checked(mode == Mode::Oscilloscope),
             Item::new("No visualization", Action::Visualizer(Mode::Off)).checked(mode == Mode::Off),
+            Item::separator(),
+            Item::new("MilkDrop", Action::ToggleMilkDrop).checked(self.milkdrop_open).shortcut(&format!("{COMMAND}+K")),
         ];
         self.open_menu(event_loop, Kind::Main, items);
     }
@@ -208,6 +213,15 @@ impl App {
             Action::ToggleDoubleSize => self.toggle_double_size(),
             Action::ToggleAlwaysOnTop => self.set_always_on_top(!self.always_on_top),
             Action::Visualizer(mode) => self.visualizer.mode = mode,
+            Action::ToggleMilkDrop => self.set_milkdrop_open(event_loop, !self.milkdrop_open),
+            Action::ChoosePresetsFolder => {
+                let dialog = rfd::FileDialog::new().set_title("Choose a folder of MilkDrop presets");
+                if let Some(folder) = dialog.pick_folder() {
+                    self.milkdrop_presets = Some(folder);
+                    let note = if self.milkdrop_started() { " (used from next start)" } else { "" };
+                    self.show_message(format!("milkdrop presets folder set{note}"));
+                }
+            }
             Action::FileInfo => self.show_file_info(),
             Action::About => {
                 rfd::MessageDialog::new()

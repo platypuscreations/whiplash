@@ -32,6 +32,9 @@ pub struct Config {
     pub double_size: bool,
     pub always_on_top: bool,
     pub visualizer: Mode,
+    /// Where MilkDrop presets are; none means the `Presets` folder here.
+    pub milkdrop_presets: Option<PathBuf>,
+    pub milkdrop_open: bool,
     /// Which track in the saved playlist was current (counting from 0).
     pub playlist_current: Option<usize>,
     pub equalizer: EqualizerConfig,
@@ -77,6 +80,8 @@ impl Default for Config {
             double_size: false,
             always_on_top: false,
             visualizer: Mode::Analyzer,
+            milkdrop_presets: None,
+            milkdrop_open: false,
             playlist_current: None,
             equalizer: EqualizerConfig::default(),
             windows: WindowsConfig { playlist_open: true, ..WindowsConfig::default() },
@@ -101,6 +106,14 @@ pub fn folder() -> Option<PathBuf> {
 
 pub fn playlist_path() -> Option<PathBuf> {
     folder().map(|f| f.join("playlist.m3u"))
+}
+
+/// The default place for MilkDrop presets. Created on first use.
+#[cfg_attr(not(feature = "milkdrop"), allow(dead_code))]
+pub fn presets_folder() -> Option<PathBuf> {
+    let presets = folder()?.join("Presets");
+    fs::create_dir_all(&presets).ok()?;
+    Some(presets)
 }
 
 /// Where users can put skins for the skin browser. Created on first use.

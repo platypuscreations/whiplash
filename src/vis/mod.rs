@@ -5,6 +5,8 @@
 //! The look and motion follow Webamp's recreation of Winamp's visualizer
 //! (MIT license, https://github.com/captbaritone/webamp).
 
+#[cfg(feature = "milkdrop")]
+pub mod milkdrop;
 mod spectrum;
 
 use std::time::{Duration, Instant};

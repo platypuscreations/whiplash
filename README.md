@@ -9,6 +9,10 @@ A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.
 - Windows snap and dock together, shrink to strips ("shade mode"), and are remembered between runs.
 - Plays MilkDrop visualizations in their own window.
 
+![Whiplash Player with the classic base 2.91 skin: the main window, equalizer and playlist editor docked together, next to a MilkDrop visualization window](whiplash-player.png)
+
+*Shown with the classic Winamp 2.91 base skin. Whiplash is not affiliated with Winamp.*
+
 ## Install
 
 Download Whiplash from the **[latest release](https://github.com/platypuscreations/whiplash/releases/latest)**. Under **Assets**, pick the file for your computer:

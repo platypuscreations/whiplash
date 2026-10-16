@@ -79,6 +79,9 @@ struct View {
     window: Rc<Window>,
     surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
     canvas: Canvas,
+    /// The canvas enlarged to screen size, for drawing sharp text on top
+    /// (see `present_with`).
+    full_size: Canvas,
     /// Last known mouse position over this window, in physical pixels.
     cursor: PhysicalPosition<f64>,
 }
@@ -117,7 +120,13 @@ impl View {
         let window = Rc::new(event_loop.create_window(attributes).expect("failed to create window"));
         let context = softbuffer::Context::new(window.clone()).expect("failed to create graphics context");
         let surface = softbuffer::Surface::new(&context, window.clone()).expect("failed to create surface");
-        View { window, surface, canvas: Canvas::new(width, height), cursor: PhysicalPosition::new(0.0, 0.0) }
+        View {
+            window,
+            surface,
+            canvas: Canvas::new(width, height),
+            full_size: Canvas::new(0, 0),
+            cursor: PhysicalPosition::new(0.0, 0.0),
+        }
     }
 
     /// Copies the canvas to the screen, scaled up to fill the window.
@@ -132,6 +141,34 @@ impl View {
         // becomes an equal square block (2x on Retina, 4x in double size).
         let scale = (size.width / self.canvas.width).min(size.height / self.canvas.height).max(1);
         self.canvas.scale_into(&mut buffer, size.width, size.height, scale);
+        buffer.present().map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(())
+    }
+
+    /// How many screen pixels each canvas pixel becomes: the largest
+    /// whole number that fits (2 on Retina, 4 in double size).
+    fn pixel_scale(&self) -> u32 {
+        let size = self.window.inner_size();
+        (size.width / self.canvas.width.max(1)).min(size.height / self.canvas.height.max(1)).max(1)
+    }
+
+    /// Like `present`, but after enlarging the canvas lets `overlay` draw
+    /// on the screen-sized image (given the scale), for sharp text.
+    fn present_with(&mut self, overlay: impl FnOnce(&mut Canvas, u32)) -> Result<()> {
+        let size = self.window.inner_size();
+        let (Some(width), Some(height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
+            return Ok(());
+        };
+        let scale = self.pixel_scale();
+        if (self.full_size.width, self.full_size.height) != (size.width, size.height) {
+            self.full_size = Canvas::new(size.width, size.height);
+        }
+        self.canvas.scale_into(&mut self.full_size.pixels, size.width, size.height, scale);
+        overlay(&mut self.full_size, scale);
+
+        self.surface.resize(width, height).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut buffer = self.surface.buffer_mut().map_err(|e| anyhow::anyhow!("{e}"))?;
+        buffer.copy_from_slice(&self.full_size.pixels);
         buffer.present().map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(())
     }
@@ -158,9 +195,9 @@ pub struct App {
     menu_view: Option<View>,
     /// The open pop-up text menu, if any.
     menu: Option<Menu>,
-    /// The skin's playlist font, and the font for pop-up menus (loaded for
-    /// the screen's scale, 2.0 on Retina).
-    pl_font: Option<Font>,
+    /// The skin's playlist font (loaded for the window's pixel scale), and
+    /// the font for pop-up menus (loaded for the screen's scale).
+    pl_font: Option<(Font, u32)>,
     menu_font: Option<(Font, f64)>,
     player: Player,
     playlist: Playlist,
@@ -210,7 +247,6 @@ impl App {
         proxy: EventLoopProxy<UserEvent>,
     ) -> App {
         let now = Instant::now();
-        let pl_font = Font::load(&skin.playlist.font, playlist_window::FONT_PX);
         let skin_name = skin_path.as_deref().map(file_name).unwrap_or_default();
         let windows = config.windows.clone();
         let mut visualizer = Visualizer::new();
@@ -253,7 +289,7 @@ impl App {
             pl_view: None,
             menu_view: None,
             menu: None,
-            pl_font,
+            pl_font: None,
             menu_font: None,
             player: Player::new(),
             playlist: Playlist::default(),
@@ -618,8 +654,22 @@ impl App {
                 if (view.canvas.width, view.canvas.height) != (self.pl.width, self.pl.window_height()) {
                     view.canvas = Canvas::new(self.pl.width, self.pl.window_height());
                 }
-                playlist_window::draw(&mut view.canvas, &self.skin, self.pl_font.as_mut(), &self.pl, &self.playlist, &self.state);
-                view.present()
+                playlist_window::draw(&mut view.canvas, &self.skin, &self.pl, &self.playlist, &self.state);
+
+                // Track names are drawn on the enlarged image, with the font
+                // loaded at that size, so they're sharp.
+                let scale = view.pixel_scale();
+                if self.pl_font.as_ref().is_none_or(|(_, s)| *s != scale) {
+                    let px = playlist_window::FONT_PX * scale as f32;
+                    self.pl_font = Font::load(&self.skin.playlist.font, px).map(|font| (font, scale));
+                }
+                let (skin, pl, playlist) = (&self.skin, &self.pl, &self.playlist);
+                let font = self.pl_font.as_mut().map(|(font, _)| font);
+                view.present_with(|full_size, scale| {
+                    if let Some(font) = font {
+                        playlist_window::draw_track_text(full_size, skin, font, pl, playlist, scale);
+                    }
+                })
             }
             Kind::Menu => {
                 let (Some(view), Some(menu), Some((font, scale))) = (&mut self.menu_view, &self.menu, &mut self.menu_font)
@@ -767,7 +817,7 @@ impl App {
         let name = file_name(&path);
         self.skin_path = Some(std::fs::canonicalize(&path).unwrap_or(path));
         if skin.playlist.font != self.skin.playlist.font {
-            self.pl_font = Font::load(&skin.playlist.font, playlist_window::FONT_PX);
+            self.pl_font = None; // reloaded with the new skin's font when next drawn
         }
         self.skin = skin;
         self.skin_name = name;

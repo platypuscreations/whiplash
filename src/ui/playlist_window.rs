@@ -307,14 +307,10 @@ pub fn hit_test(view: &PlaylistView, track_count: usize, x: i32, y: i32) -> Hit 
     if inside(0, 0, width, TOP) { Hit::TitleBar } else { Hit::Nothing }
 }
 
-pub fn draw(
-    canvas: &mut Canvas,
-    skin: &Skin,
-    font: Option<&mut Font>,
-    view: &PlaylistView,
-    playlist: &Playlist,
-    main: &MainState,
-) {
+/// Draws the window at skin size, except the track names and lengths:
+/// those are drawn afterwards at the screen's full resolution by
+/// `draw_track_text`, so they stay sharp.
+pub fn draw(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: &Playlist, main: &MainState) {
     use skin::*;
     if view.shaded {
         return draw_shaded(canvas, skin, view, playlist);
@@ -359,7 +355,7 @@ pub fn draw(
     let handle = if view.dragging_scrollbar { PL_SCROLL_HANDLE_SELECTED } else { PL_SCROLL_HANDLE };
     canvas.draw(skin, handle, width - 15, view.scroll_handle_y(playlist.len()));
 
-    draw_tracks(canvas, skin, font, view, playlist);
+    draw_track_backgrounds(canvas, skin, view, playlist);
     draw_status(canvas, skin, view, playlist, main);
 
     // The open button menu, with its bar to the left.
@@ -375,31 +371,64 @@ pub fn draw(
     }
 }
 
-fn draw_tracks(canvas: &mut Canvas, skin: &Skin, font: Option<&mut Font>, view: &PlaylistView, playlist: &Playlist) {
+/// The list's background, with selected tracks highlighted.
+fn draw_track_backgrounds(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: &Playlist) {
     let (width, height) = view.size();
     let style = &skin.playlist;
     let (left, right) = (LEFT, width - RIGHT);
     canvas.fill_rect(left, TOP, (right - left) as u32, (height - TOP - BOTTOM) as u32, style.normal_bg);
-    let Some(font) = font else { return };
-
-    let current = playlist.current_index();
-    let entries = playlist.entries();
     for row in 0..view.visible_rows() {
-        let index = view.scroll + row;
-        let Some(entry) = entries.get(index) else { break };
-        let top = TOP + LIST_PADDING + row as i32 * ROW_HEIGHT;
+        let Some(entry) = playlist.entries().get(view.scroll + row) else { break };
         if entry.selected {
+            let top = TOP + LIST_PADDING + row as i32 * ROW_HEIGHT;
             canvas.fill_rect(left, top, (right - left) as u32, ROW_HEIGHT as u32, style.selected_bg);
         }
+    }
+}
+
+/// Draws the track names and lengths onto the enlarged window, where each
+/// skin pixel is `scale` x `scale` screen pixels. `font` must be loaded at
+/// `FONT_PX * scale`. Text never covers an open button menu.
+pub fn draw_track_text(canvas: &mut Canvas, skin: &Skin, font: &mut Font, view: &PlaylistView, playlist: &Playlist, scale: u32) {
+    if view.shaded {
+        return;
+    }
+    let s = scale as i32;
+    let (width, _) = view.size();
+    let style = &skin.playlist;
+    let (left, right) = (LEFT * s, (width - RIGHT) * s);
+
+    // An open button menu (and its bar) covers part of the list.
+    let layout = view.menu_layout();
+    let menu = layout.first().zip(layout.last()).map(|(&(_, _, x, top), &(_, _, _, bottom))| {
+        ((x - 3) * s, (x + 22) * s, top * s, (bottom + 18) * s)
+    });
+
+    let current = playlist.current_index();
+    for row in 0..view.visible_rows() {
+        let index = view.scroll + row;
+        let Some(entry) = playlist.entries().get(index) else { break };
+        let top = (TOP + LIST_PADDING + row as i32 * ROW_HEIGHT) * s;
+        let row_height = ROW_HEIGHT * s;
         let color = if Some(index) == current { style.current } else { style.normal };
+
+        // Where text may go on this row: everywhere, or either side of the menu.
+        let clips: Vec<(i32, i32)> = match menu {
+            Some((menu_left, menu_right, menu_top, menu_bottom)) if top < menu_bottom && top + row_height > menu_top => {
+                vec![(left, menu_left), (menu_right, right)]
+            }
+            _ => vec![(left, right)],
+        };
+        let within = |(a, b): (i32, i32), (c, d): (i32, i32)| (a.max(c), b.min(d));
 
         // The length on the right, then the title shortened to fit before it.
         let length = entry.duration.map(|d| format_duration(d.round() as u64)).unwrap_or_default();
-        let length_width = font.width(&length);
-        let length_x = right - 3 - length_width;
-        font.draw(canvas, &length, length_x, top, ROW_HEIGHT, color, (left, right));
-        let title = font.fit(&format!("{}. {}", index + 1, entry.title), length_x - 6 - (left + 2));
-        font.draw(canvas, &title, left + 2, top, ROW_HEIGHT, color, (left, length_x - 2));
+        let length_x = right - 3 * s - font.width(&length);
+        let title = font.fit(&format!("{}. {}", index + 1, entry.title), length_x - 6 * s - (left + 2 * s));
+        for &clip in &clips {
+            font.draw(canvas, &length, length_x, top, row_height, color, within(clip, (left, right)));
+            font.draw(canvas, &title, left + 2 * s, top, row_height, color, within(clip, (left, length_x - 2 * s)));
+        }
     }
 }
 

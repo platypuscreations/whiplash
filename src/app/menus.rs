@@ -49,6 +49,7 @@ impl App {
         }
         view.window.focus_window();
         self.menu_view = Some(view);
+        self.menu_opened_at = Some(std::time::Instant::now());
         self.menu = Some(menu);
     }
 

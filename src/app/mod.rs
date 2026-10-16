@@ -50,6 +50,11 @@ const MESSAGE_TIME: Duration = Duration::from_secs(4);
 const DROP_BURST: Duration = Duration::from_millis(300);
 /// Arrow keys seek by this many seconds.
 const SEEK_STEP: f64 = 5.0;
+/// For this long after a pop-up menu opens, losing focus doesn't close it.
+/// Opening a menu can briefly move focus around (on macOS, a right-click
+/// in an inactive app makes the app active, and macOS then refocuses the
+/// window that had focus before), which would otherwise close it at once.
+const MENU_GRACE: Duration = Duration::from_millis(500);
 
 /// Messages from other threads that wake up the event loop.
 #[derive(Debug)]
@@ -195,6 +200,10 @@ pub struct App {
     menu_view: Option<View>,
     /// The open pop-up text menu, if any.
     menu: Option<Menu>,
+    /// When the pop-up menu opened (see `MENU_GRACE`).
+    menu_opened_at: Option<Instant>,
+    /// Log window events to the terminal (set `SKINAMP_DEBUG_EVENTS=1`).
+    debug_events: bool,
     /// The skin's playlist font (loaded for the window's pixel scale), and
     /// the font for pop-up menus (loaded for the screen's scale).
     pl_font: Option<(Font, u32)>,
@@ -289,6 +298,8 @@ impl App {
             pl_view: None,
             menu_view: None,
             menu: None,
+            menu_opened_at: None,
+            debug_events: std::env::var_os("SKINAMP_DEBUG_EVENTS").is_some(),
             pl_font: None,
             menu_font: None,
             player: Player::new(),
@@ -974,9 +985,23 @@ impl ApplicationHandler<UserEvent> for App {
             return;
         }
         let Some(kind) = self.kind_of(id) else { return };
+        if self.debug_events
+            && matches!(
+                event,
+                WindowEvent::Focused(_) | WindowEvent::MouseInput { .. } | WindowEvent::CloseRequested
+            )
+        {
+            eprintln!("[event] {kind:?}: {event:?}");
+        }
         // A click puts the tooltip away until the mouse moves to another control.
         if matches!(event, WindowEvent::MouseInput { state: ElementState::Pressed, .. }) {
             self.dismiss_tooltip();
+            // Clicking anywhere outside an open pop-up menu closes it.
+            if kind != Kind::Menu && self.menu.is_some() {
+                self.close_text_menu();
+                self.redraw_all();
+                return;
+            }
         }
         match event {
             WindowEvent::CloseRequested => match kind {
@@ -996,7 +1021,12 @@ impl ApplicationHandler<UserEvent> for App {
                 Kind::Equalizer => self.eq.focused = focused,
                 Kind::Playlist => self.pl.focused = focused,
                 // A pop-up menu closes when you click away from it.
-                Kind::Menu if !focused => self.close_text_menu(),
+                Kind::Menu if !focused => {
+                    let just_opened = self.menu_opened_at.is_some_and(|at| at.elapsed() < MENU_GRACE);
+                    if !just_opened {
+                        self.close_text_menu();
+                    }
+                }
                 Kind::Menu => {}
             },
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
@@ -1041,7 +1071,10 @@ impl ApplicationHandler<UserEvent> for App {
                 (Kind::Menu, ElementState::Pressed) => {}
             },
             // Right-clicking the main or equalizer window opens the main menu.
-            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Right, .. }
+            // It opens when the button is released: opened on the press, the
+            // click would finish afterwards and hand focus back to this
+            // window, closing the menu straight away.
+            WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Right, .. }
                 if matches!(kind, Kind::Main | Kind::Equalizer) =>
             {
                 self.open_options_menu(event_loop, kind);

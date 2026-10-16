@@ -155,6 +155,15 @@ The presets shuffle every 30 seconds. In the MilkDrop window, N, P and R pick th
 
 Drop music files, folders or playlists onto the main window to play them, or onto the playlist to add them.
 
+### Media keys and now playing
+
+The keyboard's play/pause, next and previous keys control Whiplash even when it's in the background, and so do headphone buttons. The song playing shows in the system's media controls, with its title, artist, album and time:
+
+- **macOS:** in Control Center's **Now Playing**, whose buttons and position slider work too. The media keys go to whichever app played most recently, so if Music or a browser tab takes them, play something in Whiplash again.
+- **Linux:** in the desktop's media widget (Plasma, GNOME and others), through the standard MPRIS interface. The widget's shuffle and repeat buttons work too, and `playerctl -p whiplash` controls Whiplash from a terminal.
+
+With an empty playlist, the media keys do nothing.
+
 ## Settings
 
 Whiplash saves its settings, window positions and playlist when it quits. They go in its settings folder, which also holds the **Skins** and **Presets** folders:

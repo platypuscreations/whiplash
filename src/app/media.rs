@@ -1,16 +1,19 @@
 //! The system's media controls: the keyboard's play/pause, next and
 //! previous keys, and the desktop's "now playing" display.
 //!
-//! The keys don't reach the app as ordinary key presses. The desktop
+//! The keys don't reach the app as ordinary key presses. The system
 //! catches them and passes them to the music player it thinks is current:
-//! on Linux over D-Bus, by the MPRIS standard (see `mpris.rs`). The same
-//! connection tells the desktop what's playing, which shows in the
-//! Plasma media widget, GNOME's notifications and `playerctl`.
+//! on macOS the "Now Playing" app (see `macos.rs`), on Linux over D-Bus,
+//! by the MPRIS standard (see `mpris.rs`). The same connection tells the
+//! system what's playing, which shows in Control Center, the Plasma media
+//! widget, GNOME's notifications and `playerctl`.
 //!
 //! None of this is needed for playing music, so it never gets in the way:
 //! if the desktop can't be reached, the controls just don't work, and the
 //! app never waits on them.
 
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod mpris;
 
@@ -24,7 +27,6 @@ use crate::audio::{PlayState, Player};
 
 /// What the desktop asked the player to do.
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[cfg_attr(target_os = "macos", allow(dead_code))] // until macOS has its media controls
 pub enum Command {
     Play,
     Pause,
@@ -33,10 +35,13 @@ pub enum Command {
     Next,
     Previous,
     /// Moves this many seconds forward (or back, if negative).
+    #[cfg_attr(target_os = "macos", allow(dead_code))] // only Linux's MPRIS asks for this
     Seek(f64),
     /// Jumps to this many seconds into the track.
     SetPosition(f64),
+    #[cfg_attr(target_os = "macos", allow(dead_code))] // Control Center has no shuffle button
     SetShuffle(bool),
+    #[cfg_attr(target_os = "macos", allow(dead_code))] // ...or repeat button
     SetRepeat(bool),
 }
 
@@ -163,43 +168,7 @@ fn send(backend: &Backend, updates: Vec<Update>) {
     }
 }
 
+#[cfg(target_os = "macos")]
+use macos::Backend;
 #[cfg(all(unix, not(target_os = "macos")))]
 use mpris::Backend;
-
-/// No media controls on this system yet.
-#[cfg(not(all(unix, not(target_os = "macos"))))]
-struct Backend;
-
-#[cfg(not(all(unix, not(target_os = "macos"))))]
-impl Backend {
-    fn connect(_proxy: EventLoopProxy<UserEvent>) -> Option<Backend> {
-        None
-    }
-
-    fn send(&self, _update: Update) {}
-}
-
-/// A file's path as a `file://` address, as the desktop expects.
-#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
-fn file_url(path: &std::path::Path) -> String {
-    use std::os::unix::ffi::OsStrExt;
-    let mut url = String::from("file://");
-    for &byte in path.as_os_str().as_bytes() {
-        if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {
-            url.push(byte as char);
-        } else {
-            url.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    url
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn file_urls_escape_what_they_must() {
-        assert_eq!(file_url(std::path::Path::new("/music/a b/Ünder #1.mp3")), "file:///music/a%20b/%C3%9Cnder%20%231.mp3");
-    }
-}

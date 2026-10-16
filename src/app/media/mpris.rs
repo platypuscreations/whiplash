@@ -17,7 +17,7 @@ use async_channel::{Receiver, Sender};
 use mpris_server::{LoopStatus, Metadata, PlaybackStatus, Player, Time, TrackId};
 use winit::event_loop::EventLoopProxy;
 
-use super::{Command, Track, Update, file_url};
+use super::{Command, Track, Update};
 use crate::app::UserEvent;
 use crate::audio::PlayState;
 
@@ -190,4 +190,28 @@ async fn first(a: impl Future<Output = ()>, b: impl Future<Output = ()>) {
         }
     })
     .await
+}
+
+/// A file's path as a `file://` address, as the desktop expects.
+fn file_url(path: &std::path::Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let mut url = String::from("file://");
+    for &byte in path.as_os_str().as_bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {
+            url.push(byte as char);
+        } else {
+            url.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    url
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_urls_escape_what_they_must() {
+        assert_eq!(file_url(std::path::Path::new("/music/a b/Ünder #1.mp3")), "file:///music/a%20b/%C3%9Cnder%20%231.mp3");
+    }
 }

@@ -995,22 +995,19 @@ impl ApplicationHandler<UserEvent> for App {
             return;
         }
         let zoom = self.zoom();
-        let main_position = self.saved_positions.main.map(|[x, y]| PhysicalPosition::new(x, y));
+        // Every window is created at its place (see `plan_window_positions`).
+        self.plan_window_positions(event_loop);
+        let at = |position: Option<[i32; 2]>| position.map(|[x, y]| PhysicalPosition::new(x, y));
         let (width, height) = self.skin_size(Kind::Main);
-        let show = Show { visible: true, active: true, position: main_position };
+        let show = Show { visible: true, active: true, position: at(self.saved_positions.main) };
         self.main_view = Some(View::for_skin(event_loop, "Whiplash Player", width, height, zoom, show));
-        // A saved position on a screen that's no longer connected is dropped.
-        if let Some([x, y]) = self.saved_positions.main
-            && !self.on_screen(x, y)
-            && let Some(view) = &self.main_view
-        {
-            view.window.set_outer_position(PhysicalPosition::new(100, 100));
-        }
         // The other windows are created hidden and shown when opened.
         let (width, height) = self.skin_size(Kind::Equalizer);
-        self.eq_view = Some(View::for_skin(event_loop, "Equalizer", width, height, zoom, Show::HIDDEN));
+        let show = Show { position: at(self.saved_positions.equalizer), ..Show::HIDDEN };
+        self.eq_view = Some(View::for_skin(event_loop, "Equalizer", width, height, zoom, show));
         let (width, height) = self.skin_size(Kind::Playlist);
-        self.pl_view = Some(View::for_skin(event_loop, "Playlist", width, height, zoom, Show::HIDDEN));
+        let show = Show { position: at(self.saved_positions.playlist), ..Show::HIDDEN };
+        self.pl_view = Some(View::for_skin(event_loop, "Playlist", width, height, zoom, show));
         if self.saved_positions.equalizer_open {
             self.set_equalizer_open(true);
         }

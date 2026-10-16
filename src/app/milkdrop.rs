@@ -5,7 +5,6 @@
 mod enabled {
     use std::time::{Duration, Instant};
 
-    use winit::dpi::PhysicalPosition;
     use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
     use winit::event_loop::ActiveEventLoop;
     use winit::keyboard::{Key, NamedKey};
@@ -29,8 +28,8 @@ mod enabled {
 
         pub(in crate::app) fn set_milkdrop_open(&mut self, event_loop: &ActiveEventLoop, open: bool) {
             if open && self.milkdrop.is_none() {
-                // Open to the right of the main window the first time.
-                let position = self.rect(Kind::Main).map(|r| PhysicalPosition::new(r.x + r.w, r.y));
+                // Open beside the main window the first time.
+                let position = self.beside_main(MilkDrop::SIZE);
                 let presets = self.milkdrop_presets.clone().or_else(config::presets_folder);
                 match MilkDrop::new(event_loop, presets.as_deref(), position) {
                     Ok(milkdrop) => {

@@ -43,11 +43,14 @@ pub struct MilkDrop {
 }
 
 impl MilkDrop {
+    /// The window's size when it first opens.
+    pub const SIZE: LogicalSize<u32> = LogicalSize::new(640, 480);
+
     /// Opens the window and starts projectM with the presets in `presets`
     /// (searched recursively). Fails if OpenGL isn't available.
     pub fn new(event_loop: &ActiveEventLoop, presets: Option<&Path>, position: Option<PhysicalPosition<i32>>) -> Result<MilkDrop> {
         let mut attributes =
-            Window::default_attributes().with_title("MilkDrop").with_inner_size(LogicalSize::new(640, 480));
+            Window::default_attributes().with_title("MilkDrop").with_inner_size(MilkDrop::SIZE);
         if let Some(position) = position {
             attributes = attributes.with_position(position);
         }

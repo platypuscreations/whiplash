@@ -7,8 +7,10 @@
 //! handing the drag to the operating system.
 
 use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::event_loop::ActiveEventLoop;
+use winit::monitor::MonitorHandle;
 
-use super::{App, KINDS, Kind};
+use super::{App, KINDS, Kind, skin_window_size};
 
 /// How close (in logical pixels) a window must come to an edge to snap.
 const SNAP_DISTANCE: f64 = 10.0;
@@ -262,11 +264,92 @@ impl App {
     /// position from a now-disconnected monitor isn't used.
     pub(super) fn on_screen(&self, x: i32, y: i32) -> bool {
         let Some(view) = &self.main_view else { return true };
-        view.window.available_monitors().any(|m| {
-            let (p, s) = (m.position(), m.size());
-            x >= p.x - 20 && y >= p.y - 20 && x < p.x + s.width as i32 - 20 && y < p.y + s.height as i32 - 20
+        on_a_screen(view.window.available_monitors(), x, y)
+    }
+
+    /// Decides where the main, equalizer and playlist windows start, before
+    /// any of them is created: saved places if they're still on a screen,
+    /// otherwise stacked under the main window, the stack (and MilkDrop
+    /// beside it, if it opens too) centered on the main screen when nothing
+    /// is saved. The places become
+    /// `saved_positions`, which the windows are created and shown at.
+    ///
+    /// Each window must get its place when it is created: on X11 the
+    /// window manager only respects a position set then (with a hint winit
+    /// adds), and puts windows moved just before they appear wherever it
+    /// likes, usually piled up in the middle of the screen.
+    pub(super) fn plan_window_positions(&mut self, event_loop: &ActiveEventLoop) {
+        let monitors: Vec<MonitorHandle> = event_loop.available_monitors().collect();
+        let screen = event_loop.primary_monitor().or_else(|| monitors.first().cloned());
+        let fits = |p: &[i32; 2]| on_a_screen(monitors.iter().cloned(), p[0], p[1]);
+        // Window sizes as they will be on the main screen.
+        let scale = screen.as_ref().map_or(1.0, |s| s.scale_factor());
+        let size = |kind| {
+            let (width, height) = self.skin_size(kind);
+            skin_window_size(width, height, self.zoom(), scale)
+        };
+        let (main, eq, pl) = (size(Kind::Main), size(Kind::Equalizer), size(Kind::Playlist));
+        // Room for MilkDrop beside the main window, if it opens too.
+        #[cfg(feature = "milkdrop")]
+        let beside = if self.reopen_milkdrop { crate::vis::milkdrop::MilkDrop::SIZE.to_physical::<u32>(scale).width } else { 0 };
+        #[cfg(not(feature = "milkdrop"))]
+        let beside = 0;
+        let windows = &mut self.saved_positions;
+
+        let main_at = windows.main.filter(fits).or_else(|| {
+            let screen = screen.as_ref()?;
+            let (p, s) = (screen.position(), screen.size());
+            let open = |is_open, size: PhysicalSize<u32>| if is_open { size.height } else { 0 };
+            let stack = main.height + open(windows.equalizer_open, eq) + open(windows.playlist_open, pl);
+            let x = p.x + (s.width as i32 - (main.width + beside) as i32) / 2;
+            let y = p.y + (s.height as i32 - stack as i32) / 2;
+            Some([x, y.max(p.y)])
+        });
+        let below = |at: Option<[i32; 2]>, size: PhysicalSize<u32>| at.map(|[x, y]| [x, y + size.height as i32]);
+        let eq_at = windows.equalizer.filter(fits).or(below(main_at, main));
+        let pl_at = windows.playlist.filter(fits).or(if windows.equalizer_open { below(eq_at, eq) } else { below(main_at, main) });
+        (windows.main, windows.equalizer, windows.playlist) = (main_at, eq_at, pl_at);
+    }
+
+    /// Where a window of `size` should open beside the main window: to its
+    /// right, or to its left if it only fits on the screen there.
+    #[cfg(feature = "milkdrop")]
+    pub(super) fn beside_main(&self, size: winit::dpi::LogicalSize<u32>) -> Option<PhysicalPosition<i32>> {
+        let main = self.main_rect()?;
+        let right = PhysicalPosition::new(main.right(), main.y);
+        let view = self.main_view.as_ref()?;
+        let Some(screen) = view.window.available_monitors().find(|m| on_a_screen(std::iter::once(m.clone()), main.x, main.y))
+        else {
+            return Some(right);
+        };
+        let width = size.to_physical::<i32>(screen.scale_factor()).width;
+        let (left_edge, right_edge) = (screen.position().x, screen.position().x + screen.size().width as i32);
+        if main.right() + width > right_edge && main.x - width >= left_edge {
+            Some(PhysicalPosition::new(main.x - width, main.y))
+        } else {
+            Some(right)
+        }
+    }
+
+    /// The main window's place: where the system says it is, or where it
+    /// was put if the system hasn't shown it yet.
+    #[cfg(feature = "milkdrop")]
+    fn main_rect(&self) -> Option<Rect> {
+        self.rect(Kind::Main).or_else(|| {
+            let [x, y] = self.saved_positions.main?;
+            let size = self.window_size(Kind::Main)?;
+            Some(Rect { x, y, w: size.width as i32, h: size.height as i32 })
         })
     }
+}
+
+/// True if a window corner at (x, y) is on one of the screens (with a
+/// little room to spare, so the window can be grabbed).
+fn on_a_screen(mut monitors: impl Iterator<Item = MonitorHandle>, x: i32, y: i32) -> bool {
+    monitors.any(|m| {
+        let (p, s) = (m.position(), m.size());
+        x >= p.x - 20 && y >= p.y - 20 && x < p.x + s.width as i32 - 20 && y < p.y + s.height as i32 - 20
+    })
 }
 
 #[cfg(test)]

@@ -22,7 +22,7 @@ use crate::vis::Mode;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// The skin in use; none means the built-in placeholder look.
+    /// The skin in use; none means Whiplash's built-in skin.
     pub skin: Option<PathBuf>,
     pub volume: f32,
     pub balance: f32,

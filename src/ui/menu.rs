@@ -57,7 +57,8 @@ pub enum Action {
     // Skin browser
     /// One of the skins listed in the browser, by its place in the list.
     Skin(usize),
-    BaseSkin,
+    /// Whiplash's own skin.
+    BuiltInSkin,
     LoadSkinFile,
     OpenSkinsFolder,
     // Equalizer presets

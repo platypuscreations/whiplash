@@ -586,7 +586,7 @@ impl App {
                 let length = info.duration.map(|d| format!(" ({})", format_time(d.round() as u32))).unwrap_or_default();
                 format!("{}. {}{length}", self.playlist.current_number(), info.title)
             }
-            None if self.skin_name.is_empty() => "drop a .wsz skin or music here".to_string(),
+            None if self.skin_name.is_empty() => "Whiplash Player - drop music or skins here".to_string(),
             None => self.skin_name.clone(),
         }
     }
@@ -868,7 +868,7 @@ impl App {
     fn file_dropped(&mut self, path: PathBuf, kind: Kind) {
         if is_skin(&path) {
             match open_skin(&path) {
-                Ok(skin) => self.set_skin(skin, path),
+                Ok(skin) => self.set_skin(skin, Some(path)),
                 Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
             }
             return;
@@ -882,9 +882,10 @@ impl App {
         self.add_tracks(vec![path], replace);
     }
 
-    fn set_skin(&mut self, skin: Skin, path: PathBuf) {
-        let name = file_name(&path);
-        self.skin_path = Some(std::fs::canonicalize(&path).unwrap_or(path));
+    /// Switches skin: one from a file, or the built-in one without `path`.
+    fn set_skin(&mut self, skin: Skin, path: Option<PathBuf>) {
+        let name = path.as_deref().map(file_name).unwrap_or_default();
+        self.skin_path = path.map(|path| std::fs::canonicalize(&path).unwrap_or(path));
         if skin.playlist.font != self.skin.playlist.font {
             self.pl_font = None; // reloaded with the new skin's font when next drawn
         }

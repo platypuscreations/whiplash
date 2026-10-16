@@ -116,7 +116,7 @@ impl App {
     pub(super) fn open_skin_browser(&mut self, event_loop: &ActiveEventLoop, over: Kind) {
         self.skin_choices = self.find_skins();
         let current = self.skin_path.clone();
-        let mut items = vec![Item::new("<no skin>", Action::BaseSkin).checked(current.is_none())];
+        let mut items = vec![Item::new("Whiplash (built-in)", Action::BuiltInSkin).checked(current.is_none())];
         for (i, path) in self.skin_choices.iter().enumerate() {
             let checked = current.as_deref().is_some_and(|c| same_file(c, path));
             items.push(Item::new(file_name(path), Action::Skin(i)).checked(checked));
@@ -237,21 +237,17 @@ impl App {
             Action::Skin(index) => {
                 if let Some(path) = self.skin_choices.get(index).cloned() {
                     match open_skin(&path) {
-                        Ok(skin) => self.set_skin(skin, path),
+                        Ok(skin) => self.set_skin(skin, Some(path)),
                         Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
                     }
                 }
             }
-            Action::BaseSkin => {
-                self.set_skin(crate::skin::Skin::empty(), PathBuf::new());
-                self.skin_path = None;
-                self.skin_name.clear();
-            }
+            Action::BuiltInSkin => self.set_skin(crate::skin::Skin::builtin(), None),
             Action::LoadSkinFile => {
                 let dialog = rfd::FileDialog::new().set_title("Load skin").add_filter("Winamp skins", &["wsz", "zip"]);
                 if let Some(path) = dialog.pick_file() {
                     match open_skin(&path) {
-                        Ok(skin) => self.set_skin(skin, path),
+                        Ok(skin) => self.set_skin(skin, Some(path)),
                         Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
                     }
                 }

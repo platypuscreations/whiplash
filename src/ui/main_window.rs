@@ -107,6 +107,7 @@ const TIME_AREA: (i32, i32, i32, i32) = (39, 26, 59, 13);
 pub const VIS_POSITION: (i32, i32) = (24, 43);
 
 /// Everything the main window shows that isn't part of the skin.
+#[derive(Clone)]
 pub struct MainState {
     pub focused: bool,
     /// Shrunk to a strip ("windowshade" mode).

@@ -9,9 +9,9 @@ A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.
 - Windows snap and dock together, shrink to strips ("shade mode"), and are remembered between runs.
 - Plays MilkDrop visualizations in their own window.
 
-![Whiplash Player with the classic base 2.91 skin: the main window, equalizer and playlist editor docked together, next to a MilkDrop visualization window](whiplash-player.png)
+![Whiplash Player with its built-in skin: the main window, equalizer and playlist editor docked together, next to a MilkDrop visualization window](whiplash-player.png)
 
-*Shown with the classic Winamp 2.91 base skin. Whiplash is not affiliated with Winamp.*
+*Shown with Whiplash's built-in skin. Whiplash also plays classic Winamp skins, and is not affiliated with Winamp.*
 
 ## Install
 
@@ -66,9 +66,11 @@ To try changes made since the last release: every change on the `main` branch is
 
 ## Skins
 
-Whiplash doesn't come with a skin: until you add one, its windows are drawn as plain grey boxes. The [Winamp Skin Museum](https://skins.webamp.org/) has tens of thousands of free classic skins. Start with the original Winamp look, base 2.91.
+Whiplash comes with its own skin, **Whiplash**: graphite metal with an amber display, laid out like the classic Winamp skins so every button is where you'd expect it. It's what you see until you choose another skin, and you can go back to it any time: right-click the main window, choose **Skin browser...** (or press Alt+S), and pick **Whiplash (built-in)**.
 
-### Get the base 2.91 skin
+Whiplash also plays classic Winamp skins (`.wsz` files). The [Winamp Skin Museum](https://skins.webamp.org/) has tens of thousands of them, free. A good one to start with is the original Winamp look, base 2.91.
+
+### Get the original Winamp look (base 2.91)
 
 1. Open the skin's page in the museum: <https://skins.webamp.org/skin/2f245e741b6bd4e1a122a28489f0c7b7>. You can also search the museum for `base-2.91`.
 2. Click the **Download skin** button. Your browser saves `base-2.91.wsz`, usually in your Downloads folder.
@@ -100,6 +102,16 @@ Browse or search the [museum](https://skins.webamp.org/), and use the same steps
 - **Switching skins:** the skin browser (Alt+S) lists the skins in your Skins folder and in the folder of the skin you're using, up to 40 of them. You can also drop any `.wsz` file onto Whiplash at any time.
 
 Skins are their authors' artwork, shared for personal use.
+
+### Make your own version of the Whiplash skin
+
+To start a skin of your own from Whiplash's, save its files from a terminal:
+
+```sh
+whiplash --export-skin ~/Desktop/my-skin.wsz   # or a folder: ~/Desktop/my-skin
+```
+
+That gives you an ordinary classic skin: change its pictures in any image editor, and drop it onto Whiplash. On macOS, run `"/Applications/Whiplash Player.app/Contents/MacOS/whiplash"` in place of `whiplash`.
 
 ## MilkDrop visualizations
 
@@ -167,7 +179,8 @@ To build without MilkDrop (and without CMake): `cargo build --no-default-feature
 ```sh
 cargo run -- path/to/skin.wsz song.mp3 ~/Music/Album list.m3u   # a skin, music, folders, playlists
 cargo run                                          # then drop skins or music onto the window
-cargo run -- --render-to out.bmp path/to/skin.wsz  # save a screenshot without opening a window
+cargo run -- --render-to out.bmp --scale 2         # draw the windows with the built-in skin into a picture
+cargo run -- --render-to out.bmp path/to/skin.wsz  # ...or with any skin, without opening a window
 ```
 
 Set `WHIPLASH_CONFIG_DIR` to use a different settings folder (handy for testing), and `WHIPLASH_DEBUG_EVENTS=1` to log window events.
@@ -202,7 +215,7 @@ cargo test
 WHIPLASH_TEST_AUDIO=path/to/folder cargo test -- --ignored --nocapture
 ```
 
-Skins are other people's artwork: the `skins/` folder in this repository is ignored by git, for local test skins.
+Downloaded skins are other people's artwork: the `skins/` folder in this repository is ignored by git, for local test skins. The built-in skin is drawn by code in `src/skin/builtin/`; its colors are in `palette.rs`.
 
 ## License
 
@@ -219,5 +232,7 @@ Sprite coordinates, window layout and the visualizer's look are taken from [Weba
 Skin links point to the [Winamp Skin Museum](https://skins.webamp.org/), also by Jordan Eldredge.
 
 MilkDrop visualizations are rendered by [projectM](https://github.com/projectM-visualizer/projectm) (LGPL 2.1), compiled into Whiplash.
+
+The built-in Whiplash skin is original artwork, drawn by Whiplash's own code and licensed with it; it contains no Winamp artwork.
 
 This project contains no code from Winamp. It is not affiliated with or endorsed by Winamp or Llama Group.

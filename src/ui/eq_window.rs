@@ -56,6 +56,7 @@ const GRAPH_HEIGHT: i32 = 19;
 const GRAPH_BAND_SPACING: f32 = 12.0;
 
 /// Everything the equalizer window shows.
+#[derive(Clone)]
 pub struct EqState {
     pub focused: bool,
     /// Shrunk to a strip ("windowshade" mode).

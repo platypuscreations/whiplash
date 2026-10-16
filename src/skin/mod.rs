@@ -7,9 +7,12 @@
 //! skin therefore never fails just because one piece is bad; the problem is
 //! recorded in `Skin::warnings` and that piece is left out.
 
+mod builtin;
 mod pledit;
 mod sprites;
 mod viscolor;
+
+pub use builtin::export as export_builtin;
 
 pub use pledit::PlaylistStyle;
 pub use sprites::*;
@@ -139,8 +142,14 @@ impl Skin {
     }
 
     /// A skin with no images, drawn as plain placeholder colors.
+    #[cfg(test)]
     pub fn empty() -> Skin {
         Skin::from_files(HashMap::new())
+    }
+
+    /// Whiplash's own skin, used when no other skin is chosen.
+    pub fn builtin() -> Skin {
+        Skin::from_files(builtin::files())
     }
 
     /// Builds a skin from file contents keyed by lowercased file name.

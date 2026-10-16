@@ -21,9 +21,10 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize, Size};
-use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
+use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{Window, WindowId, WindowLevel};
 
 use crate::audio::{self, PlayState, Player};
@@ -1184,7 +1185,11 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             }
             WindowEvent::DroppedFile(path) => self.file_dropped(path, kind),
-            WindowEvent::KeyboardInput { event: KeyEvent { logical_key, state: ElementState::Pressed, .. }, .. } => {
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                // Option on a Mac types other characters (Option+S is "ß"),
+                // so Alt shortcuts go by the key itself.
+                let logical_key =
+                    if self.modifiers.alt_key() { event.key_without_modifiers() } else { event.logical_key };
                 if logical_key == Key::Named(NamedKey::Escape) {
                     self.close_text_menu();
                     self.pl.open_menu = None;

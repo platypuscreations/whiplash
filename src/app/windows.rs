@@ -273,6 +273,12 @@ impl App {
                 self.desktop().raise(&view.window);
             }
         }
+        // An open pop-up menu stays above them. Choosing "Skin browser..."
+        // closes one menu and opens another, and the window that gets the
+        // focus back would otherwise cover the new menu.
+        if let Some(menu) = &self.menu_view {
+            self.desktop().raise(&menu.window);
+        }
     }
 
     /// True if a window at (x, y) would be on one of the screens, so a saved

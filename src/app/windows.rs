@@ -154,9 +154,8 @@ impl App {
         let size = view.window.outer_size();
         let scale = view.window.scale_factor();
         // The mouse's screen position: from the system if it can say (see
-        // `pointer`), or else from where we put the window.
-        let pointer = self.pointer.get_or_init(super::pointer::Pointer::connect).as_ref().and_then(|p| p.position());
-        let screen = pointer.unwrap_or_else(|| {
+        // `desktop`), or else from where we put the window.
+        let screen = self.desktop().pointer().unwrap_or_else(|| {
             PhysicalPosition::new(drag.position.x as f64 + view.cursor.x, drag.position.y as f64 + view.cursor.y)
         });
         let wanted = Rect {
@@ -257,6 +256,22 @@ impl App {
             Kind::Equalizer => self.saved_positions.equalizer = None,
             Kind::Playlist => self.saved_positions.playlist = None,
             _ => {}
+        }
+    }
+
+    pub(super) fn desktop(&self) -> &super::desktop::Desktop {
+        self.desktop.get_or_init(super::desktop::Desktop::connect)
+    }
+
+    /// Brings the player, equalizer and playlist to the front together, with
+    /// `active` on top, so a docked stack isn't split between layers. (The
+    /// system brings only the window that was clicked forward.)
+    pub(super) fn raise_together(&self, active: Kind) {
+        let others = [Kind::Main, Kind::Equalizer, Kind::Playlist].into_iter().filter(|&k| k != active);
+        for kind in others.chain(std::iter::once(active)) {
+            if let Some(view) = self.view(kind).filter(|v| v.window.is_visible().unwrap_or(true)) {
+                self.desktop().raise(&view.window);
+            }
         }
     }
 

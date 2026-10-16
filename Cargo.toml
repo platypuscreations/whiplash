@@ -53,15 +53,16 @@ winit = "0.30"
 zip = { version = "9.0.3", default-features = false, features = ["deflate", "deflate64", "bzip2", "legacy-zip"] }
 
 # macOS's own file dialogs, shown as free-standing windows (see
-# src/app/dialogs/macos.rs). The same versions rfd and winit use.
+# src/app/dialogs/macos.rs), and raising windows (src/app/desktop.rs). The
+# same versions rfd and winit use.
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
 objc2 = "0.6.5"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSString", "NSURL"] }
 
-# Asking the X server where the mouse pointer is, for dragging windows on
-# Linux (see src/app/pointer.rs). The version winit uses.
+# Asking the X server where the mouse pointer is and to raise windows, on
+# Linux (see src/app/desktop.rs). The version winit uses.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 x11rb = "0.13.2"
 

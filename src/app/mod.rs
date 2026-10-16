@@ -4,12 +4,12 @@
 //! The main window's behavior lives here; the equalizer and playlist
 //! windows have their own files.
 
+mod desktop;
 mod dialogs;
 mod equalizer;
 mod menus;
 mod milkdrop;
 mod playlist;
-mod pointer;
 mod tooltips;
 mod windows;
 
@@ -286,8 +286,8 @@ pub struct App {
     proxy: EventLoopProxy<UserEvent>,
     /// A file dialog is open; only one is opened at a time.
     dialog_open: bool,
-    /// For asking where the mouse pointer is, made on the first window drag.
-    pointer: std::cell::OnceCell<Option<pointer::Pointer>>,
+    /// For what we ask of the desktop beyond winit, connected when first needed.
+    desktop: std::cell::OnceCell<desktop::Desktop>,
     /// Windows that have been on screen, whose positions are worth saving.
     shown: Vec<Kind>,
     /// A temporary message for the marquee, and when it was set.
@@ -378,7 +378,7 @@ impl App {
             skin_choices: Vec::new(),
             proxy,
             dialog_open: false,
-            pointer: std::cell::OnceCell::new(),
+            desktop: std::cell::OnceCell::new(),
             last_title_click: None,
             #[cfg(feature = "milkdrop")]
             milkdrop: None,
@@ -1091,9 +1091,16 @@ impl ApplicationHandler<UserEvent> for App {
                 return;
             }
             WindowEvent::Focused(focused) => match kind {
-                Kind::Main => self.state.focused = focused,
-                Kind::Equalizer => self.eq.focused = focused,
-                Kind::Playlist => self.pl.focused = focused,
+                Kind::Main | Kind::Equalizer | Kind::Playlist => {
+                    match kind {
+                        Kind::Main => self.state.focused = focused,
+                        Kind::Equalizer => self.eq.focused = focused,
+                        _ => self.pl.focused = focused,
+                    }
+                    if focused {
+                        self.raise_together(kind);
+                    }
+                }
                 // A pop-up menu closes when you click away from it.
                 Kind::Menu if !focused => {
                     let just_opened = self.menu_opened_at.is_some_and(|at| at.elapsed() < MENU_GRACE);

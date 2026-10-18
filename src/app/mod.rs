@@ -159,8 +159,12 @@ impl View {
         // (Win+Up included): the skin is the whole window.
         #[cfg(windows)]
         {
-            use winit::platform::windows::{CornerPreference, WindowAttributesExtWindows};
+            use winit::platform::windows::{CornerPreference, IconExtWindows, WindowAttributesExtWindows};
+            // The icon built into whiplash.exe (see build.rs).
+            let icon = winit::window::Icon::from_resource(1, None).ok();
             attributes = attributes
+                .with_window_icon(icon.clone())
+                .with_taskbar_icon(icon)
                 .with_corner_preference(CornerPreference::DoNotRound)
                 .with_border_color(None)
                 .with_enabled_buttons(winit::window::WindowButtons::MINIMIZE);

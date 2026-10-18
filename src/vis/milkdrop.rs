@@ -60,6 +60,13 @@ impl MilkDrop {
         if let Some(position) = position {
             attributes = attributes.with_position(position);
         }
+        // The icon built into whiplash.exe (see build.rs).
+        #[cfg(windows)]
+        {
+            use winit::platform::windows::{IconExtWindows, WindowAttributesExtWindows};
+            let icon = winit::window::Icon::from_resource(1, None).ok();
+            attributes = attributes.with_window_icon(icon.clone()).with_taskbar_icon(icon);
+        }
 
         // Ask for a window with an OpenGL-capable pixel format, preferring
         // the smoothest (most multisampled) one on offer.

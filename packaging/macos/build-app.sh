@@ -23,7 +23,8 @@ echo "Assembling $app..."
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp target/release/whiplash "$app/Contents/MacOS/whiplash"
-sed "s/@VERSION@/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
+# macOS wants plain numbers here: 0.4.0 for a release candidate 0.4.0-rc1.
+sed "s/@VERSION@/${version%%-*}/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
 # The license, and the notices and license texts for what's included.
 cp LICENSE THIRD-PARTY-NOTICES.md "$app/Contents/Resources/"
 cp -R licenses "$app/Contents/Resources/"

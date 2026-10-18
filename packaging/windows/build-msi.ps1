@@ -21,10 +21,12 @@ Write-Host "Building Whiplash $version..."
 cargo build --release @args
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
+# Windows Installer versions are plain numbers: 0.4.0 for a release
+# candidate 0.4.0-rc1 (the file name keeps the full version).
 Write-Host "Building $msi..."
 New-Item -ItemType Directory -Force $bundle | Out-Null
 wix build packaging\windows\whiplash.wxs -arch x64 `
-    -d "Version=$version" -d "Exe=$(Join-Path $target 'release\whiplash.exe')" `
+    -d "Version=$($version -replace '-.*')" -d "Exe=$(Join-Path $target 'release\whiplash.exe')" `
     -o $msi
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 Write-Host "Wrote $msi"

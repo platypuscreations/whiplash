@@ -124,8 +124,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -l dist
+          # A tag like v0.4.0-rc1 is a release candidate: a pre-release,
+          # which doesn't become the "latest" release.
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
           # Install notes first, then GitHub's list of changes since the last release.
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$GITHUB_REF_NAME" dist/* "${prerelease[@]}" \
             --title "Whiplash Player ${GITHUB_REF_NAME#v}" \
             --notes-file packaging/release-notes.md \
             --generate-notes

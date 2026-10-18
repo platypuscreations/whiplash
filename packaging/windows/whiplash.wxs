@@ -13,7 +13,10 @@
            Version="$(Version)"
            UpgradeCode="E8F58359-7426-47AD-AA95-89E66DF19B01"
            Scope="perMachine">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Whiplash Player is already installed." />
+    <!-- Same-version upgrades too: a release candidate (0.4.0-rc1) is
+         numbered like its release (0.4.0), which should replace it. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Whiplash Player is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <!-- Settings > Apps: the icon, and where to find out more. -->

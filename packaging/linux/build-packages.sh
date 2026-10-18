@@ -25,7 +25,10 @@ cargo build --release "$@"
 rsvg-convert -w 256 -h 256 packaging/icon.svg -o target/icons/whiplash.png
 
 echo "Building the .deb..."
-cargo deb --no-build --output "$bundle/"
+# Debian marks pre-releases with "~", which sorts before the release:
+# 0.4.0~rc1 comes before 0.4.0, so installing 0.4.0 is an upgrade.
+deb_version="$(echo "$version" | sed 's/-/~/')-1"
+cargo deb --no-build --output "$bundle/" --deb-version "$deb_version"
 
 echo "Building the AppImage..."
 arch=$(uname -m)

@@ -1285,6 +1285,18 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 let _ = inner_size_writer.request_inner_size(size);
             }
+            // Windows lets the equalizer and playlist be minimized on their
+            // own (Win+Down), leaving them as stubs with the player still up.
+            // Minimize the whole group instead.
+            #[cfg(windows)]
+            WindowEvent::Resized(_) if matches!(kind, Kind::Equalizer | Kind::Playlist) => {
+                if let Some(view) = self.view(kind).filter(|v| v.window.is_minimized() == Some(true)) {
+                    view.window.set_minimized(false);
+                    if let Some(main) = &self.main_view {
+                        main.window.set_minimized(true);
+                    }
+                }
+            }
             WindowEvent::Resized(_) => {}
             _ => return,
         }

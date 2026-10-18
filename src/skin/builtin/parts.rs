@@ -74,7 +74,7 @@ pub fn title_strip(p: &mut Paint, (x, y, w, h): Rect, title: &str, active: bool,
     // Grip dots in two rows, stopping short of the title.
     let dot = if active { mix(PALETTE.title_active, PALETTE.face_top, 0.45) } else { PALETTE.edge_light };
     for col in (grip.0..grip.1).step_by(3) {
-        if col > text_left - 6 && col < text_left + text_width + 4 {
+        if x + col > text_left - 6 && x + col < text_left + text_width + 4 {
             continue;
         }
         for row in [4, 8] {

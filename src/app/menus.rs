@@ -233,7 +233,13 @@ impl App {
             Action::LoadSkinFile => self.open_dialog(Purpose::LoadSkin),
             Action::OpenSkinsFolder => {
                 if let Some(folder) = config::skins_folder() {
-                    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+                    let opener = if cfg!(target_os = "macos") {
+                        "open"
+                    } else if cfg!(windows) {
+                        "explorer"
+                    } else {
+                        "xdg-open"
+                    };
                     if let Err(err) = std::process::Command::new(opener).arg(&folder).spawn() {
                         self.show_message(format!("could not open {}: {err}", folder.display()));
                     }

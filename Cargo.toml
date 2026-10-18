@@ -69,6 +69,11 @@ async-channel = "2.5"
 mpris-server = "0.10.0"
 x11rb = "0.13.2"
 
+# The Windows API: the console and message boxes (src/main.rs). The version
+# cpal uses.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }
+
 # A locally fixed copy of the projectm crate (see vendor/projectm/PATCHES.md).
 [patch.crates-io]
 projectm = { path = "vendor/projectm" }

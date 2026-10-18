@@ -3225,6 +3225,7 @@ dependencies = [
  "softbuffer",
  "symphonia",
  "toml",
+ "windows",
  "winit",
  "x11rb",
  "zip",

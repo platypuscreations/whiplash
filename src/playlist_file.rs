@@ -101,6 +101,8 @@ pub fn parse_pls(text: &str, base: &Path) -> Vec<PathBuf> {
 /// Makes a playlist line into a path. Web addresses aren't supported yet.
 fn resolve(line: &str, base: &Path) -> Option<PathBuf> {
     let line = match line.strip_prefix("file://") {
+        // `file:///C:/x.mp3` is `C:/x.mp3`.
+        Some(rest) if matches!(rest.as_bytes(), [b'/', drive, b':', ..] if drive.is_ascii_alphabetic()) => &rest[1..],
         Some(rest) => rest,
         None if line.contains("://") => return None,
         None => line,
@@ -129,19 +131,28 @@ pub fn save_m3u(path: &Path, entries: &[Entry]) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// An absolute path for these tests: on Windows, one on drive C.
+    const ROOT: &str = if cfg!(windows) { "C:" } else { "" };
+
+    fn abs(path: &str) -> PathBuf {
+        PathBuf::from(format!("{ROOT}{path}"))
+    }
+
     #[test]
     fn m3u_with_comments_relative_paths_and_urls() {
-        let text = "#EXTM3U\n#EXTINF:123,Artist - Song\nmusic/song.mp3\n\n/abs/other.flac\nhttp://radio.example/stream\nfile:///abs/third.ogg\nsub\\win.mp3\n";
-        let paths = parse_m3u(text, Path::new("/lists"));
+        let url_root = if cfg!(windows) { "C:/" } else { "" };
+        let text = format!("#EXTM3U\n#EXTINF:123,Artist - Song\nmusic/song.mp3\n\n{ROOT}/abs/other.flac\nhttp://radio.example/stream\nfile:///{url_root}abs/third.ogg\nsub\\win.mp3\n");
+        let paths = parse_m3u(&text, &abs("/lists"));
         assert_eq!(
             paths,
-            [
-                PathBuf::from("/lists/music/song.mp3"),
-                PathBuf::from("/abs/other.flac"),
-                PathBuf::from("/abs/third.ogg"),
-                PathBuf::from("/lists/sub/win.mp3"),
-            ]
+            [abs("/lists/music/song.mp3"), abs("/abs/other.flac"), abs("/abs/third.ogg"), abs("/lists/sub/win.mp3")]
         );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn file_urls_with_drive_letters() {
+        assert_eq!(resolve("file:///C:/x.mp3", Path::new("/lists")), Some(PathBuf::from("C:/x.mp3")));
     }
 
     #[test]
@@ -156,14 +167,14 @@ mod tests {
         fs::create_dir_all(dir.join("music")).unwrap();
         let entries = vec![
             Entry { id: 1, path: dir.join("music/a.mp3"), title: "A".into(), duration: Some(61.4), selected: false },
-            Entry { id: 2, path: PathBuf::from("/elsewhere/b.flac"), title: "B".into(), duration: None, selected: false },
+            Entry { id: 2, path: abs("/elsewhere/b.flac"), title: "B".into(), duration: None, selected: false },
         ];
         let list = dir.join("list.m3u");
         save_m3u(&list, &entries).unwrap();
         let text = fs::read_to_string(&list).unwrap();
         assert!(text.contains("#EXTINF:61,A\nmusic/a.mp3\n"), "{text}");
-        assert!(text.contains("#EXTINF:-1,B\n/elsewhere/b.flac\n"), "{text}");
-        assert_eq!(load(&list).unwrap(), [dir.join("music/a.mp3"), PathBuf::from("/elsewhere/b.flac")]);
+        assert!(text.contains(&format!("#EXTINF:-1,B\n{ROOT}/elsewhere/b.flac\n")), "{text}");
+        assert_eq!(load(&list).unwrap(), [dir.join("music/a.mp3"), abs("/elsewhere/b.flac")]);
         fs::remove_dir_all(dir).ok();
     }
 

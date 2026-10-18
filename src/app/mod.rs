@@ -71,6 +71,7 @@ pub enum UserEvent {
     /// A file dialog closed, with the paths chosen (none if cancelled).
     DialogClosed(dialogs::Purpose, Vec<PathBuf>),
     /// A media key, or the desktop's media controls.
+    #[cfg_attr(windows, allow(dead_code))] // Windows has no media controls yet
     Media(media::Command),
 }
 

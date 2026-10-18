@@ -27,6 +27,7 @@ use crate::audio::{PlayState, Player};
 
 /// What the desktop asked the player to do.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(windows, allow(dead_code))] // Windows has no media controls yet
 pub enum Command {
     Play,
     Pause,
@@ -172,3 +173,25 @@ fn send(backend: &Backend, updates: Vec<Update>) {
 use macos::Backend;
 #[cfg(all(unix, not(target_os = "macos")))]
 use mpris::Backend;
+#[cfg(windows)]
+use stub::Backend;
+
+/// Windows has no media controls yet: they need the main window, so they
+/// come with it.
+#[cfg(windows)]
+mod stub {
+    use winit::event_loop::EventLoopProxy;
+
+    use super::Update;
+    use crate::app::UserEvent;
+
+    pub struct Backend;
+
+    impl Backend {
+        pub fn connect(_proxy: EventLoopProxy<UserEvent>) -> Option<Backend> {
+            None
+        }
+
+        pub fn send(&self, _update: Update) {}
+    }
+}

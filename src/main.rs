@@ -10,6 +10,10 @@
 //! - `whiplash --export-skin whiplash.wsz` saves the built-in skin, as a
 //!   `.wsz` file or into a folder, for making your own version of it.
 
+// A release build on Windows opens no console window. The two modes above
+// borrow the console of the terminal they were run from instead.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod audio;
 mod config;
@@ -56,14 +60,26 @@ fn render_to_file(args: &[PathBuf]) -> Result<()> {
 fn main() -> Result<()> {
     let args: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
     match args.first().map(|a| a.as_os_str().to_string_lossy()) {
-        Some(flag) if flag == "--render-to" => return render_to_file(&args[1..]),
+        Some(flag) if flag == "--render-to" => {
+            attach_console();
+            return render_to_file(&args[1..]);
+        }
         Some(flag) if flag == "--export-skin" => {
+            attach_console();
             let [_, path] = args.as_slice() else { bail!("usage: whiplash --export-skin whiplash.wsz") };
             return skin::export_builtin(path);
         }
         _ => {}
     }
+    let result = run(args);
+    if let Err(err) = &result {
+        show_error(err);
+    }
+    result
+}
 
+/// Opens the windows and plays music until they're closed.
+fn run(args: Vec<PathBuf>) -> Result<()> {
     let config = config::Config::load();
 
     // A skin on the command line is used; otherwise last time's skin, or
@@ -93,3 +109,27 @@ fn main() -> Result<()> {
     event_loop.run_app(&mut app)?;
     Ok(())
 }
+
+/// Lets a release build on Windows print to the terminal it was run from.
+#[cfg(windows)]
+fn attach_console() {
+    use windows::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
+    // Fails when there's no terminal, or already one (a debug build).
+    let _ = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
+}
+
+#[cfg(not(windows))]
+fn attach_console() {}
+
+/// Puts an error that stops the app in a message box, since a release build
+/// on Windows has no console to print it to.
+#[cfg(windows)]
+fn show_error(err: &anyhow::Error) {
+    use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+    use windows::core::HSTRING;
+    let text = HSTRING::from(format!("{err:#}"));
+    unsafe { MessageBoxW(None, &text, &HSTRING::from("Whiplash Player"), MB_OK | MB_ICONERROR) };
+}
+
+#[cfg(not(windows))]
+fn show_error(_err: &anyhow::Error) {}

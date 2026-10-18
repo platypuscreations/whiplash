@@ -1,0 +1,59 @@
+<!--
+  The Windows installer for Whiplash Player, built with WiX 5 by
+  build-msi.ps1. It installs for everyone into Program Files, adds a Start
+  menu shortcut, and appears in Settings > Apps for removing it. Installing
+  a newer version replaces the old one.
+
+  Never change the UpgradeCode: it's how Windows recognizes an installed
+  Whiplash as an older version of this one.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Whiplash Player"
+           Manufacturer="Luke Hindman"
+           Version="$(Version)"
+           UpgradeCode="E8F58359-7426-47AD-AA95-89E66DF19B01"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Whiplash Player is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Settings > Apps: the icon, and where to find out more. -->
+    <Icon Id="whiplash.ico" SourceFile="packaging\windows\whiplash.ico" />
+    <Property Id="ARPPRODUCTICON" Value="whiplash.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/platypuscreations/whiplash" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Whiplash Player">
+        <Component>
+          <File Id="whiplash.exe" Source="$(Exe)" KeyPath="yes">
+            <Shortcut Name="Whiplash Player"
+                      Description="Music player for classic Winamp skins"
+                      Directory="ProgramMenuFolder"
+                      WorkingDirectory="INSTALLFOLDER"
+                      Icon="whiplash.ico"
+                      Advertise="yes" />
+          </File>
+        </Component>
+        <Component>
+          <File Source="LICENSE" Name="LICENSE.txt" />
+        </Component>
+        <Component>
+          <File Source="THIRD-PARTY-NOTICES.md" />
+        </Component>
+        <Component>
+          <File Source="README.md" />
+        </Component>
+        <Directory Id="LicensesFolder" Name="licenses">
+          <Component>
+            <File Source="licenses\LGPL-2.1.txt" />
+          </Component>
+          <Component>
+            <File Source="licenses\LGPL-3.0.txt" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Where the Start menu shortcut above goes. -->
+    <StandardDirectory Id="ProgramMenuFolder" />
+  </Package>
+</Wix>

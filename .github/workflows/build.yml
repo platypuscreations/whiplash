@@ -1,8 +1,9 @@
-# Checks and packages Whiplash on GitHub's macOS and Linux machines.
+# Checks and packages Whiplash on GitHub's macOS, Linux and Windows machines.
 #
-# Every push and pull request runs the tests and lint on both systems. If
-# they pass, the macOS app (.dmg) and the Linux packages (.deb, AppImage)
-# are built and attached to the run as downloadable "artifacts".
+# Every push and pull request runs the tests and lint on all three systems.
+# If they pass, the macOS app (.dmg), the Linux packages (.deb, AppImage)
+# and the Windows installer (.msi) are built and attached to the run as
+# downloadable "artifacts".
 #
 # Pushing a version tag (like v0.2.0) also publishes those packages as a
 # GitHub Release; see "Making a release" in the README.
@@ -23,13 +24,18 @@ jobs:
       matrix:
         # Ubuntu 22.04 rather than the newest, so the Linux packages also
         # run on older distributions (they need at least its C library).
-        os: [macos-latest, ubuntu-22.04]
+        os: [macos-latest, ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      # projectM's build makes deeply nested folders; keep their paths
+      # short of Windows' limit. (The image has CMake, LLVM and vcpkg.)
+      - name: Use a short build folder
+        if: runner.os == 'Windows'
+        run: echo "CARGO_TARGET_DIR=$env:RUNNER_TEMP\t" >> $env:GITHUB_ENV
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -74,10 +80,29 @@ jobs:
             target/release/bundle/*.deb
             target/release/bundle/*.AppImage
 
+  windows-package:
+    needs: test
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Use a short build folder
+        run: echo "CARGO_TARGET_DIR=$env:RUNNER_TEMP\t" >> $env:GITHUB_ENV
+      # WiX 5: later versions ask for a license to be accepted first.
+      - name: Install WiX
+        run: |
+          dotnet tool install -g wix --version 5.*
+          echo "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+      - run: packaging/windows/build-msi.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: whiplash-windows
+          path: ${{ runner.temp }}/t/release/bundle/*.msi
+
   release:
-    # Only for version tags, once both sets of packages are built.
+    # Only for version tags, once all the packages are built.
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos-app, linux-packages]
+    needs: [macos-app, linux-packages, windows-package]
     runs-on: ubuntu-latest
     permissions:
       contents: write # to create the release

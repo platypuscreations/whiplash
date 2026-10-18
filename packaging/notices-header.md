@@ -15,8 +15,9 @@ Whiplash.
 - **projectm** and **projectm-sys** Rust crates: GNU Lesser General Public
   License 3.0 or later (`licenses/LGPL-3.0.txt`, which builds on the GPL in
   `LICENSE`). Source: https://github.com/projectM-visualizer/projectm-rs.
-  Whiplash uses a modified copy of the `projectm` crate; its source and a
-  description of the changes are in `vendor/projectm` in Whiplash's source.
+  Whiplash uses modified copies of both crates; their source and a
+  description of the changes are in `vendor/projectm` and
+  `vendor/projectm-sys` in Whiplash's source.
 
 libprojectM bundles these components:
 
@@ -25,6 +26,12 @@ libprojectM bundles these components:
   Entertainment, Inc.
 - **GLM** (OpenGL Mathematics): MIT License, copyright G-Truc Creation.
 - **SOIL2** and the **stb** image libraries: public domain.
+
+On Windows, projectM also uses **GLEW** (the OpenGL Extension Wrangler
+Library), which is compiled into Whiplash there: Modified BSD License,
+copyright Milan Ikits, Marcelo E. Magallon and others, with parts under
+the MIT-style Mesa 3-D and Khronos licenses. Source:
+https://github.com/nigels-com/glew
 
 The full source of Whiplash, including everything needed to rebuild it with a
 modified projectM, is available at https://github.com/platypuscreations/whiplash.

@@ -1,0 +1,5 @@
+# Windows builds link the C runtime into whiplash.exe, so it runs without
+# the Visual C++ Redistributable installed. (projectM follows suit; see
+# vendor/projectm-sys/PATCHES.md.)
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

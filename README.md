@@ -1,6 +1,6 @@
 # Whiplash Player
 
-A native music player for macOS and Linux that uses classic Winamp 2.x skins (`.wsz` files). Whiplash (`whiplash` for short) lives at <https://github.com/platypuscreations/whiplash>.
+A native music player for macOS, Linux and Windows that uses classic Winamp 2.x skins (`.wsz` files). Whiplash (`whiplash` for short) lives at <https://github.com/platypuscreations/whiplash>.
 
 - Plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A).
 - Shows the classic spectrum analyzer or oscilloscope in each skin's colors.
@@ -22,6 +22,7 @@ Download Whiplash from the **[latest release](https://github.com/platypuscreatio
 | Mac with Apple silicon | `whiplash-<version>.dmg` |
 | Debian, Ubuntu, Linux Mint and similar (64-bit PC) | `whiplash_<version>-1_amd64.deb` |
 | Other Linux (64-bit PC) | `whiplash-<version>-x86_64.AppImage` |
+| Windows 10 or 11 (64-bit PC) | `whiplash-<version>-x86_64.msi` |
 
 `<version>` is the release number, for example `0.1.0`.
 
@@ -60,9 +61,19 @@ Use whichever package suits your system. The commands below use version 0.1.0; c
 
 Whiplash uses `zenity` for a few message boxes (file info, About). The `.deb` asks for it; with the AppImage, install it from your distribution if those boxes don't appear.
 
+### Windows
+
+Needs Windows 10 or 11 on a 64-bit PC (x86-64).
+
+1. Double-click the downloaded `.msi` file.
+2. It's free software without a paid code-signing certificate, so Windows may say **Windows protected your PC**. Click **More info**, then **Run anyway**.
+3. Windows asks whether to let it make changes; click **Yes**. Whiplash installs into Program Files and adds **Whiplash Player** to the Start menu.
+
+To remove it, open **Settings → Apps**, find Whiplash Player, and choose **Uninstall**. Installing a newer version replaces the old one.
+
 ### Development builds
 
-To try changes made since the last release: every change on the `main` branch is built automatically, and the packages are kept for 90 days. Sign in to GitHub, open the [list of successful builds](https://github.com/platypuscreations/whiplash/actions/workflows/build.yml?query=branch%3Amain+is%3Asuccess), click the newest one, and download `whiplash-macos` or `whiplash-linux` from **Artifacts** at the bottom. Each is a `.zip` file holding the same packages as a release.
+To try changes made since the last release: every change on the `main` branch is built automatically, and the packages are kept for 90 days. Sign in to GitHub, open the [list of successful builds](https://github.com/platypuscreations/whiplash/actions/workflows/build.yml?query=branch%3Amain+is%3Asuccess), click the newest one, and download `whiplash-macos`, `whiplash-linux` or `whiplash-windows` from **Artifacts** at the bottom. Each is a `.zip` file holding the same packages as a release.
 
 ## Skins
 
@@ -171,6 +182,7 @@ Whiplash saves its settings, window positions and playlist when it quits. They g
 
 - **macOS:** `~/Library/Application Support/whiplash`. In Finder, choose **Go → Go to Folder...** and paste that path.
 - **Linux:** `~/.config/whiplash`
+- **Windows:** `%APPDATA%\whiplash\config`. Paste that into File Explorer's address bar.
 
 Not supported yet: non-rectangular windows from a skin's `region.txt`, and internet radio streams.
 
@@ -182,6 +194,7 @@ Needs [Rust](https://rustup.rs), plus CMake and a C++ compiler. projectM (MilkDr
 
 - **macOS:** `xcode-select --install` and `brew install cmake`.
 - **Ubuntu:** `sudo apt install cmake g++ pkg-config libasound2-dev libgl-dev libegl-dev libclang-dev`.
+- **Windows:** Visual Studio 2022 or its Build Tools with the **Desktop development with C++** workload, plus CMake and LLVM (`winget install Kitware.CMake LLVM.LLVM`), and [vcpkg](https://github.com/microsoft/vcpkg) with the `VCPKG_INSTALLATION_ROOT` environment variable set to its folder (projectM gets GLEW from it). projectM's build makes deeply nested folders, so set `CARGO_TARGET_DIR` to a short path such as `C:\t`.
 
 To build without MilkDrop (and without CMake): `cargo build --no-default-features`.
 
@@ -202,7 +215,8 @@ Set `WHIPLASH_CONFIG_DIR` to use a different settings folder (handy for testing)
   docker build -t whiplash-linux packaging/linux
   docker run --rm -v "$PWD":/src:ro -v "$PWD/dist":/out whiplash-linux
   ```
-- **GitHub Actions** (`.github/workflows/build.yml`) tests on macOS and Ubuntu and builds all three packages on every push.
+- **Windows:** `packaging\windows\build-msi.ps1` makes the `.msi` installer in `target\release\bundle` (needs WiX 5: `dotnet tool install -g wix --version 5.*`). Its icon, `packaging\windows\whiplash.ico`, is made from `packaging/icon.svg` by `packaging/windows/make-icon.sh`.
+- **GitHub Actions** (`.github/workflows/build.yml`) tests on macOS, Ubuntu and Windows and builds all four packages on every push.
 
 ### Making a release
 
@@ -212,7 +226,7 @@ Set `WHIPLASH_CONFIG_DIR` to use a different settings folder (handy for testing)
    git tag v0.2.0
    git push origin main v0.2.0
    ```
-3. The **Build** workflow tests and packages that commit, then publishes a release named "Whiplash Player 0.2.0" with the `.dmg`, `.deb` and AppImage attached. It takes about 15 minutes. The release text comes from `packaging/release-notes.md`, followed by GitHub's list of changes.
+3. The **Build** workflow tests and packages that commit, then publishes a release named "Whiplash Player 0.2.0" with the `.dmg`, `.deb`, AppImage and `.msi` attached. It takes about 20 minutes. The release text comes from `packaging/release-notes.md`, followed by GitHub's list of changes.
 
 The tag must match the version in `Cargo.toml`, or the release step stops with an error.
 

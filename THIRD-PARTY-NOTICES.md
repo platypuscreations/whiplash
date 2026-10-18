@@ -15,8 +15,9 @@ Whiplash.
 - **projectm** and **projectm-sys** Rust crates: GNU Lesser General Public
   License 3.0 or later (`licenses/LGPL-3.0.txt`, which builds on the GPL in
   `LICENSE`). Source: https://github.com/projectM-visualizer/projectm-rs.
-  Whiplash uses a modified copy of the `projectm` crate; its source and a
-  description of the changes are in `vendor/projectm` in Whiplash's source.
+  Whiplash uses modified copies of both crates; their source and a
+  description of the changes are in `vendor/projectm` and
+  `vendor/projectm-sys` in Whiplash's source.
 
 libprojectM bundles these components:
 
@@ -25,6 +26,12 @@ libprojectM bundles these components:
   Entertainment, Inc.
 - **GLM** (OpenGL Mathematics): MIT License, copyright G-Truc Creation.
 - **SOIL2** and the **stb** image libraries: public domain.
+
+On Windows, projectM also uses **GLEW** (the OpenGL Extension Wrangler
+Library), which is compiled into Whiplash there: Modified BSD License,
+copyright Milan Ikits, Marcelo E. Magallon and others, with parts under
+the MIT-style Mesa 3-D and Khronos licenses. Source:
+https://github.com/nigels-com/glew
 
 The full source of Whiplash, including everything needed to rebuild it with a
 modified projectM, is available at https://github.com/platypuscreations/whiplash.
@@ -70,7 +77,6 @@ its source, available from https://crates.io.
 | ab_glyph | 0.2.32 | Apache-2.0 |
 | ab_glyph_rasterizer | 0.1.10 | Apache-2.0 |
 | ahash | 0.8.12 | MIT OR Apache-2.0 |
-| allocator-api2 | 0.2.21 | MIT OR Apache-2.0 |
 | alsa | 0.11.0 | Apache-2.0/MIT |
 | alsa-sys | 0.4.0 | MIT |
 | android-activity | 0.6.1 | MIT OR Apache-2.0 |
@@ -79,12 +85,23 @@ its source, available from https://crates.io.
 | arrayref | 0.3.9 | BSD-2-Clause |
 | arrayvec | 0.7.8 | MIT OR Apache-2.0 |
 | as-raw-xcb-connection | 1.0.1 | MIT OR Apache-2.0 |
+| async-broadcast | 0.7.2 | MIT OR Apache-2.0 |
+| async-channel | 2.5.0 | Apache-2.0 OR MIT |
+| async-executor | 1.14.0 | Apache-2.0 OR MIT |
+| async-io | 2.6.0 | Apache-2.0 OR MIT |
+| async-lock | 3.4.2 | Apache-2.0 OR MIT |
+| async-process | 2.5.0 | Apache-2.0 OR MIT |
+| async-recursion | 1.2.0 | MIT OR Apache-2.0 |
+| async-signal | 0.2.14 | Apache-2.0 OR MIT |
+| async-task | 4.7.1 | Apache-2.0 OR MIT |
+| async-trait | 0.1.92 | MIT OR Apache-2.0 |
 | atomic-waker | 1.1.2 | Apache-2.0 OR MIT |
 | bitflags | 1.3.2 | MIT/Apache-2.0 |
 | bitflags | 2.13.2 | MIT OR Apache-2.0 |
 | bitstream-io | 4.10.0 | MIT/Apache-2.0 |
 | block2 | 0.5.1 | MIT |
 | block2 | 0.6.2 | MIT |
+| blocking | 1.7.0 | Apache-2.0 OR MIT |
 | bumpalo | 3.20.3 | MIT OR Apache-2.0 |
 | bytemuck | 1.25.2 | Zlib OR Apache-2.0 OR MIT |
 | bytemuck_derive | 1.12.1 | Zlib OR Apache-2.0 OR MIT |
@@ -101,7 +118,6 @@ its source, available from https://crates.io.
 | core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 |
 | core-graphics | 0.23.2 | MIT OR Apache-2.0 |
 | core-graphics-types | 0.1.3 | MIT OR Apache-2.0 |
-| core_maths | 0.1.1 | MIT |
 | coreaudio-rs | 0.14.2 | MIT/Apache-2.0 |
 | cpal | 0.18.2 | Apache-2.0 |
 | crc32fast | 1.5.2 | MIT OR Apache-2.0 |
@@ -122,32 +138,40 @@ its source, available from https://crates.io.
 | drm-ffi | 0.9.1 | MIT |
 | drm-fourcc | 2.2.0 | MIT |
 | drm-sys | 0.8.1 | MIT |
+| endi | 1.1.1 | MIT |
+| enumflags2 | 0.7.12 | MIT OR Apache-2.0 |
+| enumflags2_derive | 0.7.12 | MIT OR Apache-2.0 |
 | equivalent | 1.0.3 | Apache-2.0 OR MIT |
 | errno | 0.3.14 | MIT OR Apache-2.0 |
+| event-listener | 5.4.2 | Apache-2.0 OR MIT |
+| event-listener-strategy | 0.5.4 | Apache-2.0 OR MIT |
 | extended | 0.1.0 | MIT |
 | fastrand | 2.5.0 | Apache-2.0 OR MIT |
 | flate2 | 1.1.10 | MIT OR Apache-2.0 |
-| foldhash | 0.1.5 | Zlib |
+| font-types | 0.12.7 | MIT OR Apache-2.0 |
 | fontconfig-parser | 0.5.8 | MIT |
 | fontdb | 0.24.0 | MIT |
-| fontdue | 0.9.4 | MIT OR Apache-2.0 OR Zlib |
 | foreign-types | 0.5.0 | MIT/Apache-2.0 |
 | foreign-types-macros | 0.2.4 | MIT/Apache-2.0 |
 | foreign-types-shared | 0.3.1 | MIT/Apache-2.0 |
+| futures-channel | 0.3.34 | MIT OR Apache-2.0 |
 | futures-core | 0.3.34 | MIT OR Apache-2.0 |
+| futures-io | 0.3.34 | MIT OR Apache-2.0 |
+| futures-lite | 2.6.1 | Apache-2.0 OR MIT |
 | futures-task | 0.3.34 | MIT OR Apache-2.0 |
 | futures-util | 0.3.34 | MIT OR Apache-2.0 |
 | gethostname | 1.1.0 | Apache-2.0 |
 | getrandom | 0.2.17 | MIT OR Apache-2.0 |
 | getrandom | 0.3.4 | MIT OR Apache-2.0 |
+| getrandom | 0.4.3 | MIT OR Apache-2.0 |
 | glutin | 0.32.3 | Apache-2.0 |
-| glutin-winit | 0.5.0 | MIT |
 | glutin_egl_sys | 0.7.1 | Apache-2.0 |
 | glutin_glx_sys | 0.6.1 | Apache-2.0 |
 | glutin_wgl_sys | 0.6.1 | Apache-2.0 |
-| hashbrown | 0.15.5 | MIT OR Apache-2.0 |
+| glutin-winit | 0.5.0 | MIT |
 | hashbrown | 0.17.1 | MIT OR Apache-2.0 |
 | hermit-abi | 0.5.3 | MIT OR Apache-2.0 |
+| hex | 0.4.3 | MIT OR Apache-2.0 |
 | image | 0.25.10 | MIT OR Apache-2.0 |
 | indexmap | 2.14.2 | Apache-2.0 OR MIT |
 | jni | 0.22.4 | MIT OR Apache-2.0 |
@@ -160,7 +184,6 @@ its source, available from https://crates.io.
 | libbz2-rs-sys | 0.2.5 | bzip2-1.0.6 |
 | libc | 0.2.190 | MIT OR Apache-2.0 |
 | libloading | 0.8.9 | ISC |
-| libm | 0.2.16 | MIT |
 | libredox | 0.1.25 | MIT |
 | linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | linux-raw-sys | 0.4.15 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
@@ -169,18 +192,20 @@ its source, available from https://crates.io.
 | mach2 | 0.6.0 | BSD-2-Clause OR MIT OR Apache-2.0 |
 | memchr | 2.8.3 | Unlicense OR MIT |
 | memmap2 | 0.9.11 | MIT OR Apache-2.0 |
+| memoffset | 0.9.1 | MIT |
 | moxcms | 0.8.1 | BSD-3-Clause OR Apache-2.0 |
+| mpris-server | 0.10.0 | MPL-2.0 |
 | ndk | 0.9.0 | MIT OR Apache-2.0 |
 | ndk-context | 0.1.1 | MIT OR Apache-2.0 |
 | ndk-sys | 0.6.0+11769913 | MIT OR Apache-2.0 |
 | nix | 0.31.3 | MIT |
 | no_std_io2 | 0.9.4 | Apache-2.0 OR MIT |
+| num_enum | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
+| num_enum_derive | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
 | num-complex | 0.4.6 | MIT OR Apache-2.0 |
 | num-derive | 0.4.2 | MIT OR Apache-2.0 |
 | num-integer | 0.1.47 | MIT OR Apache-2.0 |
 | num-traits | 0.2.19 | MIT OR Apache-2.0 |
-| num_enum | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
-| num_enum_derive | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
 | objc-sys | 0.3.5 | MIT |
 | objc2 | 0.5.3 | MIT |
 | objc2 | 0.6.5 | MIT |
@@ -195,16 +220,20 @@ its source, available from https://crates.io.
 | objc2-encode | 4.1.0 | MIT |
 | objc2-foundation | 0.2.2 | MIT |
 | objc2-foundation | 0.3.2 | MIT |
+| objc2-media-player | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-quartz-core | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-ui-kit | 0.2.2 | MIT |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 |
 | option-ext | 0.2.0 | MPL-2.0 |
 | orbclient | 0.3.55 | MIT |
+| ordered-stream | 0.2.0 | MIT OR Apache-2.0 |
 | owned_ttf_parser | 0.25.1 | Apache-2.0 |
+| parking | 2.2.1 | Apache-2.0 OR MIT |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 |
 | pin-project | 1.1.13 | Apache-2.0 OR MIT |
 | pin-project-internal | 1.1.13 | Apache-2.0 OR MIT |
 | pin-project-lite | 0.2.17 | Apache-2.0 OR MIT |
+| piper | 0.2.5 | MIT OR Apache-2.0 |
 | plain | 0.2.3 | MIT/Apache-2.0 |
 | polling | 3.11.0 | Apache-2.0 OR MIT |
 | pollster | 0.4.0 | Apache-2.0/MIT |
@@ -218,10 +247,12 @@ its source, available from https://crates.io.
 | quick-xml | 0.41.0 | MIT |
 | quote | 1.0.47 | MIT OR Apache-2.0 |
 | r-efi | 5.3.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later |
+| r-efi | 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later |
 | rand | 0.8.8 | MIT OR Apache-2.0 |
 | rand_chacha | 0.3.1 | MIT OR Apache-2.0 |
 | rand_core | 0.6.4 | MIT OR Apache-2.0 |
 | raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib |
+| read-fonts | 0.41.0 | MIT OR Apache-2.0 |
 | redox_syscall | 0.4.1 | MIT |
 | redox_syscall | 0.5.18 | MIT |
 | redox_syscall | 0.9.4 | MIT |
@@ -239,10 +270,13 @@ its source, available from https://crates.io.
 | serde | 1.0.229 | MIT OR Apache-2.0 |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 |
 | serde_derive | 1.0.229 | MIT OR Apache-2.0 |
+| serde_repr | 0.1.21 | MIT OR Apache-2.0 |
 | serde_spanned | 1.1.2 | MIT OR Apache-2.0 |
-| simd-adler32 | 0.3.10 | MIT |
+| signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 |
 | simd_cesu8 | 1.2.0 | Apache-2.0 OR MIT |
+| simd-adler32 | 0.3.10 | MIT |
 | simdutf8 | 0.1.5 | MIT OR Apache-2.0 |
+| skrifa | 0.44.0 | MIT OR Apache-2.0 |
 | slab | 0.4.12 | MIT |
 | slotmap | 1.1.1 | Zlib |
 | smallvec | 1.16.3 | MIT OR Apache-2.0 |
@@ -269,6 +303,7 @@ its source, available from https://crates.io.
 | symphonia-metadata | 0.6.1 | MPL-2.0 |
 | syn | 2.0.119 | MIT OR Apache-2.0 |
 | syn | 3.0.9 | MIT OR Apache-2.0 |
+| tempfile | 3.27.0 | MIT OR Apache-2.0 |
 | thiserror | 1.0.69 | MIT OR Apache-2.0 |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 |
 | thiserror-impl | 1.0.69 | MIT OR Apache-2.0 |
@@ -284,12 +319,16 @@ its source, available from https://crates.io.
 | toml_parser | 1.1.5+spec-1.1.0 | MIT OR Apache-2.0 |
 | toml_writer | 1.1.3+spec-1.1.0 | MIT OR Apache-2.0 |
 | tracing | 0.1.44 | MIT |
+| tracing-attributes | 0.1.31 | MIT |
 | tracing-core | 0.1.36 | MIT |
+| trait-variant | 0.1.3 | MIT OR Apache-2.0 |
 | transpose | 0.2.3 | MIT OR Apache-2.0 |
 | ttf-parser | 0.25.1 | MIT OR Apache-2.0 |
 | typed-path | 0.12.3 | MIT OR Apache-2.0 |
+| uds_windows | 1.2.1 | MIT |
 | unicode-ident | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 |
+| uuid | 1.28.0 | Apache-2.0 OR MIT |
 | wasi | 0.11.1+wasi-snapshot-preview1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | wasip2 | 1.0.4+wasi-0.2.12 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | wasm-bindgen | 0.2.129 | MIT OR Apache-2.0 |
@@ -309,6 +348,14 @@ its source, available from https://crates.io.
 | web-sys | 0.3.106 | MIT OR Apache-2.0 |
 | web-time | 1.1.0 | MIT OR Apache-2.0 |
 | windows | 0.62.2 | MIT OR Apache-2.0 |
+| windows_aarch64_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
+| windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 |
+| windows_i686_gnu | 0.52.6 | MIT OR Apache-2.0 |
+| windows_i686_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
+| windows_i686_msvc | 0.52.6 | MIT OR Apache-2.0 |
+| windows_x86_64_gnu | 0.52.6 | MIT OR Apache-2.0 |
+| windows_x86_64_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
+| windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 |
 | windows-collections | 0.3.2 | MIT OR Apache-2.0 |
 | windows-core | 0.62.2 | MIT OR Apache-2.0 |
 | windows-future | 0.3.2 | MIT OR Apache-2.0 |
@@ -323,14 +370,6 @@ its source, available from https://crates.io.
 | windows-sys | 0.61.2 | MIT OR Apache-2.0 |
 | windows-targets | 0.52.6 | MIT OR Apache-2.0 |
 | windows-threading | 0.2.1 | MIT OR Apache-2.0 |
-| windows_aarch64_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
-| windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 |
-| windows_i686_gnu | 0.52.6 | MIT OR Apache-2.0 |
-| windows_i686_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
-| windows_i686_msvc | 0.52.6 | MIT OR Apache-2.0 |
-| windows_x86_64_gnu | 0.52.6 | MIT OR Apache-2.0 |
-| windows_x86_64_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
-| windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 |
 | winit | 0.30.13 | Apache-2.0 |
 | winnow | 1.0.4 | MIT |
 | wit-bindgen | 0.57.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
@@ -340,8 +379,16 @@ its source, available from https://crates.io.
 | xcursor | 0.3.11 | MIT |
 | xkbcommon-dl | 0.4.2 | MIT |
 | xkeysym | 0.2.1 | MIT OR Apache-2.0 OR Zlib |
+| zbus | 5.19.0 | MIT |
+| zbus_macros | 5.19.0 | MIT |
+| zbus_names | 4.3.5 | MIT |
+| zcheapstr | 1.1.0 | MIT |
+| zeno | 0.3.3 | Apache-2.0 OR MIT |
 | zerocopy | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT |
 | zerocopy-derive | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT |
 | zip | 9.0.3 | MIT |
 | zlib-rs | 0.6.8 | Zlib |
 | zopfli | 0.8.4 | Apache-2.0 |
+| zvariant | 5.15.1 | MIT |
+| zvariant_derive | 5.15.1 | MIT |
+| zvariant_utils | 4.2.0 | MIT |

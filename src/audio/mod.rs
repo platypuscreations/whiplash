@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ringbuf::traits::{Producer, Split};
 use ringbuf::{HeapProd, HeapRb};
 
@@ -37,6 +37,12 @@ use resample::Resampler;
 
 /// How much decoded audio is kept ready ahead of the sound card.
 const BUFFER_SECONDS: f64 = 0.2;
+
+/// Opening the sound device can fail for a moment while the system
+/// rearranges its devices (a monitor with speakers was unplugged, say), so
+/// it's tried this many times, this far apart, before giving up.
+const OPEN_ATTEMPTS: u32 = 3;
+const OPEN_RETRY_DELAY: Duration = Duration::from_millis(250);
 /// How many of the most recently played samples are kept for visualizers.
 const HISTORY_LEN: usize = 4096;
 
@@ -140,9 +146,19 @@ impl Playback {
         let shared = Arc::new(PlaybackShared::default());
         let rate = track.info.sample_rate;
         let capacity = ((rate as f64 * BUFFER_SECONDS) as usize * 2).max(4096);
-        let (producer, consumer) = HeapRb::<f32>::new(capacity).split();
-
-        let output = output::open(rate, consumer, shared.clone(), settings.clone())?;
+        let mut attempt = 1;
+        let (output, producer) = loop {
+            let (producer, consumer) = HeapRb::<f32>::new(capacity).split();
+            match output::open(rate, consumer, shared.clone(), settings.clone()) {
+                Ok(output) => break (output, producer),
+                Err(err) if attempt < OPEN_ATTEMPTS => {
+                    eprintln!("opening the sound device, attempt {attempt}: {err:#}");
+                    attempt += 1;
+                    thread::sleep(OPEN_RETRY_DELAY);
+                }
+                Err(err) => return Err(err).context("couldn't open the sound device"),
+            }
+        };
         let output_rate = output.sample_rate;
         let thread_shared = shared.clone();
         let decoder = thread::Builder::new()

@@ -184,6 +184,8 @@ Whiplash saves its settings, window positions and playlist when it quits. They g
 - **Linux:** `~/.config/whiplash`
 - **Windows:** `%APPDATA%\whiplash\config`. Paste that into File Explorer's address bar.
 
+If something goes wrong while playing (the sound device can't be opened, say), Whiplash shows the error in its display and also adds it to `whiplash.log` in the same folder.
+
 Not supported yet: non-rectangular windows from a skin's `region.txt`, and internet radio streams.
 
 ## For developers

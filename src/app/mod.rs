@@ -14,6 +14,8 @@ mod playlist;
 mod tooltips;
 mod windows;
 
+use std::fs;
+use std::io::Write;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -50,7 +52,8 @@ use windows::WindowDrag;
 const FRAME: Duration = Duration::from_millis(33);
 /// How often a long title scrolls by one character.
 const MARQUEE_STEP: Duration = Duration::from_millis(200);
-/// How long messages stay in the marquee.
+/// How long messages stay in the marquee, at least: long ones stay until
+/// they've scrolled through once.
 const MESSAGE_TIME: Duration = Duration::from_secs(4);
 /// Files dropped this close together count as one multi-file drop.
 const DROP_BURST: Duration = Duration::from_millis(300);
@@ -125,6 +128,37 @@ impl Show {
     fn owned_by(self, owner: &Window) -> Show {
         Show { owner: owner.window_handle().ok().map(|h| h.as_raw()), ..self }
     }
+}
+
+/// How long `text` stays in the marquee: `MESSAGE_TIME`, or for one too
+/// long to fit, long enough to scroll all the way through once.
+fn message_time(text: &str) -> Duration {
+    if main_window::marquee_scrolls(text) {
+        MESSAGE_TIME.max(MARQUEE_STEP * (text.chars().count() as u32 + 10))
+    } else {
+        MESSAGE_TIME
+    }
+}
+
+/// The time now, for the log: like "2026-10-18 21:45:03 UTC".
+fn log_time() -> String {
+    utc_time(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()))
+}
+
+/// `seconds` since 1970 as a date and time in UTC.
+fn utc_time(seconds: u64) -> String {
+    let (days, time) = ((seconds / 86_400) as i64, seconds % 86_400);
+    // Days since 1970 to a calendar date (Howard Hinnant's civil_from_days).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z - era * 146_097;
+    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let mp = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!("{year}-{month:02}-{day:02} {:02}:{:02}:{:02} UTC", time / 3600, time / 60 % 60, time % 60)
 }
 
 /// How many screen pixels each skin pixel becomes: the zoom (2 in double
@@ -531,7 +565,7 @@ impl App {
                 }
                 self.apply_auto_preset();
             }
-            Err(err) => self.show_message(format!("{}: {err:#}", file_name(&path))),
+            Err(err) => self.show_error(format!("{}: {err:#}", file_name(&path))),
         }
         self.redraw(Kind::Playlist);
     }
@@ -542,7 +576,7 @@ impl App {
         } else if self.player.info().is_none() {
             self.play_current();
         } else if let Err(err) = self.player.play() {
-            self.show_message(format!("{err:#}"));
+            self.show_error(format!("{err:#}"));
         }
     }
 
@@ -623,6 +657,19 @@ impl App {
         self.message = Some((text, Instant::now()));
     }
 
+    /// Shows a message about something that went wrong, and also adds it
+    /// to `whiplash.log` in the settings folder, so it can be read later
+    /// in full (a release build on Windows has no console to print it to).
+    fn show_error(&mut self, text: String) {
+        if let Some(folder) = config::folder() {
+            let line = format!("{} {text}\n", log_time());
+            let _ = fs::create_dir_all(&folder).and_then(|()| {
+                fs::OpenOptions::new().create(true).append(true).open(folder.join("whiplash.log"))?.write_all(line.as_bytes())
+            });
+        }
+        self.show_message(text);
+    }
+
     // ----- Display -----
 
     /// What the marquee should say right now.
@@ -675,7 +722,7 @@ impl App {
             self.track_finished();
         }
         let now = Instant::now();
-        if self.message.as_ref().is_some_and(|(_, at)| now - *at > MESSAGE_TIME) {
+        if self.message.as_ref().is_some_and(|(text, at)| now - *at > message_time(text)) {
             self.message = None;
         }
         let marquee = self.marquee_text();
@@ -1416,6 +1463,13 @@ fn format_hz(hz: f64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn utc_times() {
+        assert_eq!(super::utc_time(0), "1970-01-01 00:00:00 UTC");
+        assert_eq!(super::utc_time(951_868_799), "2000-02-29 23:59:59 UTC");
+        assert_eq!(super::utc_time(1_792_359_903), "2026-10-18 21:45:03 UTC");
+    }
+
     use super::*;
 
     #[test]

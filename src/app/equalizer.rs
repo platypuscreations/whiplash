@@ -15,6 +15,7 @@ impl App {
 
     pub(super) fn set_equalizer_open(&mut self, open: bool) {
         self.state.equalizer_open = open;
+        self.dock_changed = true;
         if open {
             self.place_and_show(Kind::Equalizer);
         } else if let Some(eq) = &self.eq_view {

@@ -292,6 +292,11 @@ pub struct App {
     /// Per-song equalizer settings for the EQ's "auto" button.
     auto_presets: std::collections::HashMap<String, [f32; 11]>,
     window_drag: Option<WindowDrag>,
+    /// The windows docked to the main window and their places relative to
+    /// it, in skin pixels (see `remember_dock`), and whether windows have
+    /// moved or changed size since that was noted.
+    dock: Vec<(Kind, [i32; 2])>,
+    dock_changed: bool,
     /// The MilkDrop window, created the first time it's opened and then
     /// kept (hidden when closed), since projectM can't be cleanly restarted.
     #[cfg(feature = "milkdrop")]
@@ -408,6 +413,8 @@ impl App {
             saved_positions: windows,
             auto_presets: config.equalizer.auto_presets,
             window_drag: None,
+            dock: Vec::new(),
+            dock_changed: true,
             shown: vec![Kind::Main],
             skin_choices: Vec::new(),
             media: media::MediaControls::connect(proxy.clone()),
@@ -1179,7 +1186,19 @@ impl ApplicationHandler<UserEvent> for App {
                 return;
             }
         }
+        if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) && kind != Kind::Menu {
+            self.dock_changed = true;
+        }
         match event {
+            // Moved by the system rather than by a drag (a screen unplugged,
+            // or Win+arrow keys): keep the docked windows together. Only on
+            // Windows, which moves windows at once and says so; X11 reports
+            // moves late, and redocking from stale places would fight drags.
+            #[cfg(windows)]
+            WindowEvent::Moved(_) if kind != Kind::Menu => {
+                self.redock();
+                return;
+            }
             WindowEvent::CloseRequested => match kind {
                 Kind::Main => event_loop.exit(),
                 Kind::Equalizer => self.set_equalizer_open(false),
@@ -1320,6 +1339,12 @@ impl ApplicationHandler<UserEvent> for App {
     /// Runs when the app has handled all pending events and is about to
     /// sleep. While something is moving, wake up again for the next frame.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Note how the windows are docked, once they've settled after a
+        // change, for `redock`.
+        if self.dock_changed && self.window_drag.is_none() {
+            self.remember_dock();
+            self.dock_changed = false;
+        }
         self.refresh_tooltip(event_loop);
         self.media.sync(&self.player, self.state.shuffle, self.state.repeat);
         let mut wake = None;

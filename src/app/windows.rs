@@ -10,7 +10,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
 use winit::monitor::MonitorHandle;
 
-use super::{App, KINDS, Kind, skin_window_size};
+use super::{App, KINDS, Kind, pixels_per_skin_pixel, skin_window_size};
 
 /// How close (in logical pixels) a window must come to an edge to snap.
 const SNAP_DISTANCE: f64 = 10.0;
@@ -195,6 +195,53 @@ impl App {
 
     pub(super) fn end_window_drag(&mut self) {
         self.window_drag = None;
+    }
+
+    /// Notes which windows are docked to the main window and where, so
+    /// `redock` can put the stack back together. Places are kept in skin
+    /// pixels, so they still fit on a screen with different scaling.
+    pub(super) fn remember_dock(&mut self) {
+        let (Some(main), Some(unit)) = (self.rect(Kind::Main), self.skin_pixel()) else {
+            self.dock.clear();
+            return;
+        };
+        let in_skin_pixels = |n: i32| (n as f64 / unit as f64).round() as i32;
+        self.dock = self
+            .docked_to(Kind::Main)
+            .into_iter()
+            .filter_map(|kind| {
+                let r = self.rect(kind)?;
+                Some((kind, [in_skin_pixels(r.x - main.x), in_skin_pixels(r.y - main.y)]))
+            })
+            .collect();
+    }
+
+    /// Puts the windows that were docked to the main window back around
+    /// it, after the system moved windows on its own. When a screen is
+    /// unplugged, Windows moves each window that was on it separately,
+    /// often to the same place, which leaves the player hidden behind the
+    /// equalizer (which, belonging to it, stays above it).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(super) fn redock(&self) {
+        if self.window_drag.is_some() {
+            return;
+        }
+        let (Some(main), Some(unit)) = (self.rect(Kind::Main), self.skin_pixel()) else { return };
+        for &(kind, [dx, dy]) in &self.dock {
+            let wanted = PhysicalPosition::new(main.x + dx * unit, main.y + dy * unit);
+            if let Some(r) = self.rect(kind)
+                && (r.x, r.y) != (wanted.x, wanted.y)
+                && let Some(view) = self.view(kind)
+            {
+                view.window.set_outer_position(wanted);
+            }
+        }
+    }
+
+    /// Screen pixels per skin pixel for the main window as it is now.
+    fn skin_pixel(&self) -> Option<i32> {
+        let view = self.view(Kind::Main)?;
+        Some(pixels_per_skin_pixel(view.window.scale_factor(), self.zoom()) as i32)
     }
 
     /// Changes a window's size, moving the windows docked below it so they

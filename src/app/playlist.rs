@@ -50,6 +50,7 @@ impl App {
 
     pub(super) fn set_playlist_open(&mut self, open: bool) {
         self.state.playlist_open = open;
+        self.dock_changed = true;
         if open {
             self.place_and_show(Kind::Playlist);
         } else if let Some(view) = &self.pl_view {

@@ -1328,6 +1328,19 @@ impl ApplicationHandler<UserEvent> for App {
             }
             wake = Some(self.next_frame);
         }
+        // MilkDrop draws its frames from here, not when the system asks for
+        // a redraw: one that always wants drawing gets the system's redraws
+        // first, and on Windows the player's then never came.
+        #[cfg(feature = "milkdrop")]
+        if self.milkdrop_open
+            && let Some(milkdrop) = &mut self.milkdrop
+        {
+            if Instant::now() >= milkdrop.next_frame() {
+                milkdrop.render(&self.player);
+            }
+            let due = milkdrop.next_frame();
+            wake = Some(wake.map_or(due, |w: Instant| w.min(due)));
+        }
         // Also wake up when a tooltip is due to appear.
         if let Some(due) = self.tooltip_due() {
             wake = Some(wake.map_or(due, |w: Instant| w.min(due)));

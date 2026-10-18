@@ -12,6 +12,7 @@
 
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 use glutin::config::{ConfigTemplateBuilder, GlConfig};
@@ -31,6 +32,10 @@ use crate::audio::Player;
 /// How long each preset shows before moving on to another, in seconds.
 const PRESET_SECONDS: f64 = 30.0;
 
+/// The shortest time between frames. Drawing waits for the screen's
+/// refresh, so this only matters when it doesn't (a hidden window, say).
+const MIN_FRAME: Duration = Duration::from_millis(8);
+
 pub struct MilkDrop {
     window: Window,
     surface: Surface<WindowSurface>,
@@ -40,6 +45,7 @@ pub struct MilkDrop {
     /// How far we've read the player's sound, so each sample is sent once.
     sample_cursor: u64,
     samples: Vec<f32>,
+    next_frame: Instant,
 }
 
 impl MilkDrop {
@@ -103,7 +109,16 @@ impl MilkDrop {
             playlist.play_random();
         }
 
-        Ok(MilkDrop { window, surface, context, projectm, playlist, sample_cursor: 0, samples: Vec::new() })
+        Ok(MilkDrop {
+            window,
+            surface,
+            context,
+            projectm,
+            playlist,
+            sample_cursor: 0,
+            samples: Vec::new(),
+            next_frame: Instant::now(),
+        })
     }
 
     pub fn window(&self) -> &Window {
@@ -119,8 +134,14 @@ impl MilkDrop {
         self.playlist.len()
     }
 
+    /// When the next frame is due.
+    pub fn next_frame(&self) -> Instant {
+        self.next_frame
+    }
+
     /// Feeds projectM the newest sound and draws one frame.
     pub fn render(&mut self, player: &Player) {
+        self.next_frame = Instant::now() + MIN_FRAME;
         self.samples.clear();
         player.samples_since(&mut self.sample_cursor, &mut self.samples);
         let max = ProjectM::pcm_get_max_samples() as usize;

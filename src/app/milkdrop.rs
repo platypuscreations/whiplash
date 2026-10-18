@@ -67,10 +67,9 @@ mod enabled {
                     if let Some(milkdrop) = &mut self.milkdrop
                         && self.milkdrop_open
                     {
+                        // Shown again, or uncovered; the animation runs
+                        // from `about_to_wait`.
                         milkdrop.render(&self.player);
-                        // Keep animating; drawing waits for the screen's
-                        // refresh, so this runs at its frame rate.
-                        milkdrop.window().request_redraw();
                     }
                 }
                 WindowEvent::Resized(size) => {

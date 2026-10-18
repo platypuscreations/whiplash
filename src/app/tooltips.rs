@@ -100,6 +100,8 @@ impl App {
         let position = parent.window.outer_position().ok().map(|origin| {
             PhysicalPosition::new(origin.x + parent.cursor.x as i32, origin.y + (parent.cursor.y + 20.0 * scale) as i32)
         });
+        // Tooltips never take focus from the window being used.
+        let show = position.map(|position| Show::at(position, false).owned_by(&parent.window));
 
         // The font is loaded at the screen's real pixel size, so text is sharp.
         if self.tooltip_font.as_ref().is_none_or(|(_, s)| *s != scale) {
@@ -119,11 +121,11 @@ impl App {
             }
             return;
         }
-        let (true, Some(position)) = (due, position) else { return };
+        let (true, Some(show)) = (due, show) else { return };
 
-        // Tooltips never take focus from the window being used. The window
-        // is sized in real pixels and drawn one canvas pixel per screen pixel.
-        let view = View::new(event_loop, "tooltip", width, height, size.into(), Show::at(position, false));
+        // The window is sized in real pixels and drawn one canvas pixel per
+        // screen pixel.
+        let view = View::new(event_loop, "tooltip", width, height, size.into(), show);
         view.window.set_window_level(winit::window::WindowLevel::AlwaysOnTop);
         view.window.request_redraw();
         self.tooltip_view = Some(view);

@@ -31,6 +31,7 @@ impl App {
         let scale = parent.window.scale_factor();
         let Ok(origin) = parent.window.outer_position() else { return };
         let position = PhysicalPosition::new(origin.x + parent.cursor.x as i32, origin.y + parent.cursor.y as i32);
+        let show = Show::at(position, true).owned_by(&parent.window);
 
         // Drawn at the screen's real pixel size, so the text is sharp.
         if self.menu_font.as_ref().is_none_or(|(_, s)| *s != scale) {
@@ -39,7 +40,7 @@ impl App {
         let Some((font, _)) = self.menu_font.as_mut() else { return };
         let (width, height) = menu.size(font, scale);
         let size = PhysicalSize::new(width, height);
-        let view = View::new(event_loop, "menu", width, height, size.into(), Show::at(position, true));
+        let view = View::new(event_loop, "menu", width, height, size.into(), show);
         if self.always_on_top {
             view.window.set_window_level(winit::window::WindowLevel::AlwaysOnTop);
         }

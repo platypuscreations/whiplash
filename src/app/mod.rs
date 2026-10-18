@@ -26,6 +26,7 @@ use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
+use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
 
 use crate::audio::{self, PlayState, Player};
@@ -108,14 +109,22 @@ struct Show {
     active: bool,
     /// Where on screen, or `None` to let the system choose.
     position: Option<PhysicalPosition<i32>>,
+    /// On Windows, the window this one belongs to: it then has no taskbar
+    /// button of its own, stays above its owner, and minimizes with it.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    owner: Option<RawWindowHandle>,
 }
 
 impl Show {
     /// Created hidden, to be shown later.
-    const HIDDEN: Show = Show { visible: false, active: true, position: None };
+    const HIDDEN: Show = Show { visible: false, active: true, position: None, owner: None };
 
     fn at(position: PhysicalPosition<i32>, active: bool) -> Show {
-        Show { visible: true, active, position: Some(position) }
+        Show { visible: true, active, position: Some(position), owner: None }
+    }
+
+    fn owned_by(self, owner: &Window) -> Show {
+        Show { owner: owner.window_handle().ok().map(|h| h.as_raw()), ..self }
     }
 }
 
@@ -136,7 +145,7 @@ fn skin_window_size(width: u32, height: u32, zoom: u32, scale_factor: f64) -> Ph
 impl View {
     /// A window showing a `width` x `height` canvas, `size` big on screen.
     fn new(event_loop: &ActiveEventLoop, title: &str, width: u32, height: u32, size: Size, show: Show) -> View {
-        let Show { visible, active, position } = show;
+        let Show { visible, active, position, owner } = show;
         let mut attributes = Window::default_attributes()
             .with_title(title)
             .with_decorations(false) // the skin draws its own title bar
@@ -147,6 +156,21 @@ impl View {
         if let Some(position) = position {
             attributes = attributes.with_position(position);
         }
+        // Square corners and no border from Windows 11, and no maximizing
+        // (Win+Up included): the skin is the whole window.
+        #[cfg(windows)]
+        {
+            use winit::platform::windows::{CornerPreference, WindowAttributesExtWindows};
+            attributes = attributes
+                .with_corner_preference(CornerPreference::DoNotRound)
+                .with_border_color(None)
+                .with_enabled_buttons(winit::window::WindowButtons::MINIMIZE);
+            if let Some(RawWindowHandle::Win32(owner)) = owner {
+                attributes = attributes.with_owner_window(owner.hwnd.get());
+            }
+        }
+        #[cfg(not(windows))]
+        let _ = owner;
         let window = Rc::new(event_loop.create_window(attributes).expect("failed to create window"));
         let context = softbuffer::Context::new(window.clone()).expect("failed to create graphics context");
         let surface = softbuffer::Surface::new(&context, window.clone()).expect("failed to create surface");
@@ -1057,14 +1081,17 @@ impl ApplicationHandler<UserEvent> for App {
         self.plan_window_positions(event_loop);
         let at = |position: Option<[i32; 2]>| position.map(|[x, y]| PhysicalPosition::new(x, y));
         let (width, height) = self.skin_size(Kind::Main);
-        let show = Show { visible: true, active: true, position: at(self.saved_positions.main) };
+        let show = Show { visible: true, active: true, position: at(self.saved_positions.main), owner: None };
         self.main_view = Some(View::for_skin(event_loop, "Whiplash Player", width, height, zoom, show));
         // The other windows are created hidden and shown when opened.
         let (width, height) = self.skin_size(Kind::Equalizer);
-        let show = Show { position: at(self.saved_positions.equalizer), ..Show::HIDDEN };
+        // They belong to the player window, as in Winamp.
+        let main = &self.main_view.as_ref().expect("just created").window;
+        let show = Show { position: at(self.saved_positions.equalizer), ..Show::HIDDEN }.owned_by(main);
         self.eq_view = Some(View::for_skin(event_loop, "Equalizer", width, height, zoom, show));
         let (width, height) = self.skin_size(Kind::Playlist);
-        let show = Show { position: at(self.saved_positions.playlist), ..Show::HIDDEN };
+        let main = &self.main_view.as_ref().expect("just created").window;
+        let show = Show { position: at(self.saved_positions.playlist), ..Show::HIDDEN }.owned_by(main);
         self.pl_view = Some(View::for_skin(event_loop, "Playlist", width, height, zoom, show));
         if self.saved_positions.equalizer_open {
             self.set_equalizer_open(true);

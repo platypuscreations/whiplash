@@ -2,13 +2,23 @@
 //!
 //! The main window uses the skin's bitmap font, but Winamp's playlist uses
 //! a real font named in the skin's `pledit.txt` (usually Arial). We find it
-//! among the system's fonts with `fontdb` and turn letters into pixels with
-//! `fontdue`.
+//! among the system's fonts with `fontdb`, read its outlines with `skrifa`
+//! and turn them into pixels with `zeno`.
+//!
+//! Small text is fitted to whole pixels by the font's hinting, its own
+//! instructions for that. We use the strong kind, which moves letters
+//! across as well as up and down, as Windows did before ClearType: every
+//! stroke lands on a pixel, and the text stays sharp on screens without
+//! HiDPI. (Hinting meant for smoothed text only moves letters up and down,
+//! which leaves upright strokes smeared across two pixels.)
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use fontdue::{FontSettings, Metrics};
+use skrifa::instance::{LocationRef, Size};
+use skrifa::outline::{DrawSettings, HintingInstance, HintingOptions, OutlinePen, Target};
+use skrifa::{FontRef, MetadataProvider};
+use zeno::{Command, Format, Mask};
 
 use super::canvas::Canvas;
 
@@ -29,11 +39,30 @@ fn system_fonts() -> &'static fontdb::Database {
 
 /// A font at one size, with each letter's pixels kept after first use.
 pub struct Font {
-    font: fontdue::Font,
+    /// The font file (or the collection it's in), and which font in it.
+    data: Vec<u8>,
+    index: u32,
     px: f32,
+    /// Above and below the baseline, in pixels.
     ascent: f32,
     descent: f32,
-    glyphs: HashMap<char, (Metrics, Vec<u8>)>,
+    /// The font's hinting at this size; none if it can't be run.
+    hinting: Option<HintingInstance>,
+    glyphs: HashMap<char, Glyph>,
+}
+
+/// One letter's pixels.
+#[derive(Clone)]
+struct Glyph {
+    /// Where its pixels start: right of the pen, and up from the baseline.
+    left: i32,
+    top: i32,
+    width: usize,
+    height: usize,
+    coverage: Vec<u8>,
+    /// How far the pen moves on, in whole pixels so hinted letters stay on
+    /// the pixel grid.
+    advance: i32,
 }
 
 impl Font {
@@ -50,21 +79,54 @@ impl Font {
             .next()
             .or_else(|| database.faces().next().map(|face| face.id))?;
 
-        let font = database.with_face_data(id, |data, index| {
-            fontdue::Font::from_bytes(data, FontSettings { collection_index: index, ..Default::default() }).ok()
+        let (data, index) = database.with_face_data(id, |data, index| {
+            FontRef::from_index(data, index).ok()?;
+            Some((data.to_vec(), index))
         })??;
-        let line = font.horizontal_line_metrics(px)?;
-        Some(Font { font, px, ascent: line.ascent, descent: line.descent, glyphs: HashMap::new() })
+        let font = FontRef::from_index(&data, index).ok()?;
+        let metrics = font.metrics(Size::new(px), LocationRef::default());
+        let (ascent, descent) = (metrics.ascent, -metrics.descent);
+        let options = HintingOptions::from(Target::Mono);
+        let hinting = HintingInstance::new(&font.outline_glyphs(), Size::new(px), LocationRef::default(), options).ok();
+        Some(Font { data, index, px, ascent, descent, hinting, glyphs: HashMap::new() })
     }
 
-    fn glyph(&mut self, c: char) -> &(Metrics, Vec<u8>) {
-        let (font, px) = (&self.font, self.px);
-        self.glyphs.entry(c).or_insert_with(|| font.rasterize(c, px))
+    fn glyph(&mut self, c: char) -> &Glyph {
+        let Font { data, index, px, hinting, glyphs, .. } = self;
+        glyphs.entry(c).or_insert_with(|| {
+            let font = FontRef::from_index(data, *index).expect("checked when loaded");
+            let id = font.charmap().map(c).unwrap_or_default();
+            let size = Size::new(*px);
+            let advance = font.glyph_metrics(size, LocationRef::default()).advance_width(id).unwrap_or(0.0);
+            let mut outline = Outline(Vec::new());
+            let drawn = font.outline_glyphs().get(id).and_then(|glyph| {
+                let settings = match hinting {
+                    Some(hinting) => DrawSettings::hinted(hinting, false),
+                    None => DrawSettings::unhinted(size, LocationRef::default()),
+                };
+                glyph.draw(settings, &mut outline).ok()
+            });
+            // Hinting may widen or narrow a letter, to whole pixels.
+            let advance = drawn.and_then(|m| m.advance_width).unwrap_or(advance).round() as i32;
+            if outline.0.is_empty() {
+                // A letter with no outline, like a space.
+                return Glyph { left: 0, top: 0, width: 0, height: 0, coverage: Vec::new(), advance };
+            }
+            let (coverage, placement) = Mask::new(&outline.0[..]).format(Format::Alpha).render();
+            Glyph {
+                left: placement.left,
+                top: -placement.top,
+                width: placement.width as usize,
+                height: placement.height as usize,
+                coverage,
+                advance,
+            }
+        })
     }
 
     /// Width of `text` in pixels.
     pub fn width(&mut self, text: &str) -> i32 {
-        text.chars().map(|c| self.glyph(c).0.advance_width).sum::<f32>().round() as i32
+        text.chars().map(|c| self.glyph(c).advance).sum()
     }
 
     /// Shortens `text` with "..." so it fits in `max_width` pixels.
@@ -98,24 +160,50 @@ impl Font {
         color: u32,
         (clip_left, clip_right): (i32, i32),
     ) {
-        let text_height = self.ascent - self.descent;
+        let text_height = self.ascent + self.descent;
         let baseline = top + ((line_height as f32 - text_height) / 2.0 + self.ascent).round() as i32;
-        let mut pen = x as f32;
+        let mut pen = x;
         for c in text.chars() {
-            let (metrics, coverage) = self.glyph(c).clone();
-            let left = pen.round() as i32 + metrics.xmin;
-            let glyph_top = baseline - metrics.height as i32 - metrics.ymin;
-            for row in 0..metrics.height {
-                for col in 0..metrics.width {
-                    let alpha = coverage[row * metrics.width + col];
+            let glyph = self.glyph(c).clone();
+            let left = pen + glyph.left;
+            let glyph_top = baseline - glyph.top;
+            for row in 0..glyph.height {
+                for col in 0..glyph.width {
+                    let alpha = glyph.coverage[row * glyph.width + col];
                     let (px, py) = (left + col as i32, glyph_top + row as i32);
                     if alpha > 0 && px >= clip_left && px < clip_right {
                         canvas.blend(px, py, color, alpha);
                     }
                 }
             }
-            pen += metrics.advance_width;
+            pen += glyph.advance;
         }
+    }
+}
+
+/// Collects a letter's outline for `zeno`, turned the right way up: fonts
+/// count up from the baseline, pixels count down.
+struct Outline(Vec<Command>);
+
+impl OutlinePen for Outline {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.push(Command::MoveTo([x, -y].into()));
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.push(Command::LineTo([x, -y].into()));
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.0.push(Command::QuadTo([cx0, -cy0].into(), [x, -y].into()));
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.0.push(Command::CurveTo([cx0, -cy0].into(), [cx1, -cy1].into(), [x, -y].into()));
+    }
+
+    fn close(&mut self) {
+        self.0.push(Command::Close);
     }
 }
 

@@ -20,6 +20,9 @@ Changes in `build.rs`, marked "whiplash patch":
 - On Windows, static builds define `PROJECTM_STATIC_DEFINE` for all C++
   code. The playlist's object library didn't get it, so it imported
   projectM's functions as if from a DLL (linker warning LNK4217).
+- On Windows, CMake uses the Visual Studio generator for whichever version
+  is installed. The original required Visual Studio 2022 by name, which
+  fails where only a newer one is installed (GitHub's windows-2025 image).
 - On Windows, the C runtime and the vcpkg triplet follow Rust's: the DLL
   runtime normally, the static one (`x64-windows-static`) with `+crt-static`.
 

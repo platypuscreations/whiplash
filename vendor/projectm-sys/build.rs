@@ -83,7 +83,8 @@ fn main() {
         // Configure and build libprojectM using CMake for Windows
         let mut cmake_config = cmake::Config::new(&projectm_path);
         cmake_config
-            .generator("Visual Studio 17 2022")
+            // whiplash patch: no fixed generator; the cmake crate picks the
+            // Visual Studio that's installed (2022, 2026, ...).
             .define("CMAKE_TOOLCHAIN_FILE", vcpkg_toolchain_str)
             .define("VCPKG_TARGET_TRIPLET", triplet)
             .define("CMAKE_MSVC_RUNTIME_LIBRARY", msvc_runtime)

@@ -1,6 +1,6 @@
 [package]
 name = "whiplash"
-version = "0.3.0"
+version = "0.4.0-rc1"
 edition = "2024"
 description = "A music player for classic Winamp skins, with MilkDrop visualizations"
 authors = ["Luke Hindman <luke@platypuscreations.net>"]

@@ -74,19 +74,15 @@ x11rb = "0.13.2"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }
 
-# A locally fixed copy of the projectm crate (see vendor/projectm/PATCHES.md).
+# Locally fixed copies of the projectm crates (see vendor/*/PATCHES.md).
 [patch.crates-io]
 projectm = { path = "vendor/projectm" }
+projectm-sys = { path = "vendor/projectm-sys" }
 
 # Optimize dependencies even in debug builds: unoptimized audio decoding can
 # be too slow to keep up with real-time playback.
 [profile.dev.package."*"]
 opt-level = 2
-
-# Except projectM: its build script expects a CMake "Debug" build (with a
-# "d" suffix on the library name) in debug builds, which needs opt-level 0.
-[profile.dev.package.projectm-sys]
-opt-level = 0
 
 [features]
 # MilkDrop visualizations through projectM. Building it compiles projectM's

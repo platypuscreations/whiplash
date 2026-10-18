@@ -81,6 +81,11 @@ impl MilkDrop {
         // Draw in step with the screen's refresh rate.
         let _ = surface.set_swap_interval(&context, SwapInterval::Wait(NonZeroU32::MIN));
 
+        // On Windows projectM calls OpenGL through GLEW, which it never sets
+        // up itself.
+        #[cfg(windows)]
+        init_glew()?;
+
         // projectM must be created while its OpenGL context is current.
         let projectm = ProjectM::create();
         projectm.set_preset_duration(PRESET_SECONDS);
@@ -166,6 +171,28 @@ impl MilkDrop {
     pub fn is_fullscreen(&self) -> bool {
         self.window.fullscreen().is_some()
     }
+}
+
+/// Looks up the OpenGL functions newer than Windows' own OpenGL 1.1, for
+/// the context that's current.
+#[cfg(windows)]
+fn init_glew() -> Result<()> {
+    // From GLEW, which projectm-sys links.
+    unsafe extern "C" {
+        static mut glewExperimental: u8;
+        fn glewInit() -> u32;
+    }
+    // Safety: called on the thread whose context is current, before projectM
+    // makes any OpenGL calls. "Experimental" makes GLEW look up functions a
+    // core-profile context doesn't list as extensions.
+    let status = unsafe {
+        glewExperimental = 1;
+        glewInit()
+    };
+    if status != 0 {
+        anyhow::bail!("OpenGL 3.3 is not available (GLEW error {status})");
+    }
+    Ok(())
 }
 
 /// Folders that may hold the textures some presets use: the presets folder

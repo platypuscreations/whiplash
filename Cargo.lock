@@ -2016,8 +2016,6 @@ dependencies = [
 [[package]]
 name = "projectm-sys"
 version = "1.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25cefe874b73cb8da95def230af489949f0b9e77788e1777eaf345c860d6ca5a"
 dependencies = [
  "bindgen",
  "cmake",

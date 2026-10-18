@@ -69,10 +69,11 @@ async-channel = "2.5"
 mpris-server = "0.10.0"
 x11rb = "0.13.2"
 
-# The Windows API: the console and message boxes (src/main.rs), and the
-# pointer and raising windows (src/app/desktop.rs). The version cpal uses.
+# The Windows API: the console and message boxes (src/main.rs), the
+# pointer and raising windows (src/app/desktop.rs), and the media controls
+# (src/app/media/smtc.rs). The version cpal uses.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62.2", features = ["Foundation", "Media", "Win32_Foundation", "Win32_System_Console", "Win32_System_WinRT", "Win32_UI_WindowsAndMessaging"] }
 
 # Locally fixed copies of the projectm crates (see vendor/*/PATCHES.md).
 [patch.crates-io]

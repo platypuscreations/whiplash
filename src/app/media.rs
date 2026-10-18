@@ -4,9 +4,11 @@
 //! The keys don't reach the app as ordinary key presses. The system
 //! catches them and passes them to the music player it thinks is current:
 //! on macOS the "Now Playing" app (see `macos.rs`), on Linux over D-Bus,
-//! by the MPRIS standard (see `mpris.rs`). The same connection tells the
-//! system what's playing, which shows in Control Center, the Plasma media
-//! widget, GNOME's notifications and `playerctl`.
+//! by the MPRIS standard (see `mpris.rs`), and on Windows through its
+//! System Media Transport Controls (see `smtc.rs`). The same connection
+//! tells the system what's playing, which shows in Control Center, the
+//! Plasma media widget, GNOME's notifications, `playerctl` and Windows'
+//! media flyout.
 //!
 //! None of this is needed for playing music, so it never gets in the way:
 //! if the desktop can't be reached, the controls just don't work, and the
@@ -16,6 +18,8 @@
 mod macos;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod mpris;
+#[cfg(windows)]
+mod smtc;
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -27,7 +31,6 @@ use crate::audio::{PlayState, Player};
 
 /// What the desktop asked the player to do.
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[cfg_attr(windows, allow(dead_code))] // Windows has no media controls yet
 pub enum Command {
     Play,
     Pause,
@@ -36,7 +39,7 @@ pub enum Command {
     Next,
     Previous,
     /// Moves this many seconds forward (or back, if negative).
-    #[cfg_attr(target_os = "macos", allow(dead_code))] // only Linux's MPRIS asks for this
+    #[cfg_attr(any(target_os = "macos", windows), allow(dead_code))] // only Linux's MPRIS asks for this
     Seek(f64),
     /// Jumps to this many seconds into the track.
     SetPosition(f64),
@@ -102,6 +105,28 @@ impl MediaControls {
             shuffle: None,
             repeat: None,
         }
+    }
+
+    /// Windows ties its media controls to a window, so they start working
+    /// once the player window exists. Elsewhere this does nothing.
+    pub fn window_created(&mut self, window: &winit::window::Window) {
+        #[cfg(windows)]
+        if let Some(backend) = &mut self.backend {
+            backend.attach(window);
+            // Tell the new controls everything.
+            self.track = None;
+            self.position_sent = None;
+            self.shuffle = None;
+            self.repeat = None;
+        }
+        #[cfg(not(windows))]
+        let _ = window;
+    }
+
+    /// Whether media keys pressed in Whiplash's own windows reach it through
+    /// the system too, and so must not be handled a second time.
+    pub fn takes_media_keys(&self) -> bool {
+        cfg!(windows) && self.backend.is_some()
     }
 
     /// Tells the desktop what changed since last time. Cheap enough to call
@@ -174,24 +199,4 @@ use macos::Backend;
 #[cfg(all(unix, not(target_os = "macos")))]
 use mpris::Backend;
 #[cfg(windows)]
-use stub::Backend;
-
-/// Windows has no media controls yet: they need the main window, so they
-/// come with it.
-#[cfg(windows)]
-mod stub {
-    use winit::event_loop::EventLoopProxy;
-
-    use super::Update;
-    use crate::app::UserEvent;
-
-    pub struct Backend;
-
-    impl Backend {
-        pub fn connect(_proxy: EventLoopProxy<UserEvent>) -> Option<Backend> {
-            None
-        }
-
-        pub fn send(&self, _update: Update) {}
-    }
-}
+use smtc::Backend;

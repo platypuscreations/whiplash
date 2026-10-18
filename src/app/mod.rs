@@ -72,7 +72,6 @@ pub enum UserEvent {
     /// A file dialog closed, with the paths chosen (none if cancelled).
     DialogClosed(dialogs::Purpose, Vec<PathBuf>),
     /// A media key, or the desktop's media controls.
-    #[cfg_attr(windows, allow(dead_code))] // Windows has no media controls yet
     Media(media::Command),
 }
 
@@ -923,7 +922,16 @@ impl App {
                 "l" => self.open_dialog(dialogs::Purpose::PlayFiles),
                 _ => {}
             },
-            // Media keys the desktop didn't take for itself.
+            // Media keys the desktop didn't take for itself. On Windows they
+            // also come through the media controls, so they'd act twice.
+            Key::Named(
+                NamedKey::MediaPlayPause
+                | NamedKey::MediaPlay
+                | NamedKey::MediaPause
+                | NamedKey::MediaStop
+                | NamedKey::MediaTrackNext
+                | NamedKey::MediaTrackPrevious,
+            ) if self.media.takes_media_keys() => {}
             Key::Named(NamedKey::MediaPlayPause) => self.media_command(media::Command::PlayPause),
             Key::Named(NamedKey::MediaPlay) => self.media_command(media::Command::Play),
             Key::Named(NamedKey::MediaPause) => self.media_command(media::Command::Pause),
@@ -1087,6 +1095,7 @@ impl ApplicationHandler<UserEvent> for App {
         let (width, height) = self.skin_size(Kind::Equalizer);
         // They belong to the player window, as in Winamp.
         let main = &self.main_view.as_ref().expect("just created").window;
+        self.media.window_created(main);
         let show = Show { position: at(self.saved_positions.equalizer), ..Show::HIDDEN }.owned_by(main);
         self.eq_view = Some(View::for_skin(event_loop, "Equalizer", width, height, zoom, show));
         let (width, height) = self.skin_size(Kind::Playlist);

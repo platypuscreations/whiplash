@@ -161,6 +161,7 @@ The keyboard's play/pause, next and previous keys control Whiplash even when it'
 
 - **macOS:** in Control Center's **Now Playing**, whose buttons and position slider work too. The media keys go to whichever app played most recently, so if Music or a browser tab takes them, play something in Whiplash again.
 - **Linux:** in the desktop's media widget (Plasma, GNOME and others), through the standard MPRIS interface. The widget's shuffle and repeat buttons work too, and `playerctl -p whiplash` controls Whiplash from a terminal.
+- **Windows:** in the media panel that appears with the volume control, and on the lock screen. Its buttons, position bar, shuffle and repeat work too.
 
 With an empty playlist, the media keys do nothing.
 

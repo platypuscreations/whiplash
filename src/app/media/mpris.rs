@@ -146,7 +146,11 @@ async fn apply(player: &Player, update: Update, tracks: &mut u64) -> mpris_serve
 }
 
 fn metadata(track: &Track, number: u64) -> Metadata {
-    let mut metadata = Metadata::builder().title(&track.title).url(file_url(&track.path));
+    let mut metadata = Metadata::builder().title(&track.title);
+    // Only a file's address is passed on: a server's could hold a password.
+    if let Some(path) = track.location.file() {
+        metadata = metadata.url(file_url(path));
+    }
     // Each new track gets a new id, so the desktop can tell them apart.
     if let Ok(id) = TrackId::try_from(format!("/net/platypuscreations/whiplash/track/{number}")) {
         metadata = metadata.trackid(id);

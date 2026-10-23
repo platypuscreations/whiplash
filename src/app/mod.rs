@@ -5,11 +5,13 @@
 //! windows have their own files.
 
 mod desktop;
+mod browse;
 mod dialogs;
 mod equalizer;
 mod media;
 mod menus;
 mod milkdrop;
+mod modes;
 mod playlist;
 mod tooltips;
 mod windows;
@@ -31,12 +33,13 @@ use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
 
-use crate::audio::{self, PlayState, Player};
-use crate::config::{self, Config, WindowsConfig};
+use crate::audio::{self, Done, Opener, PlayState, Player};
+use crate::config::{self, Config, EmbyConfig, PlayerMode, SqueezeConfig, WindowsConfig};
+use crate::library::Library;
 use crate::metadata::MetadataReader;
 use crate::playlist::Playlist;
-use crate::playlist_file;
 use crate::skin::Skin;
+use crate::ui::browse::Browser;
 use crate::ui::canvas::Canvas;
 use crate::ui::eq_window::{self, EqState};
 use crate::ui::main_window::{self, Control, Hit, MainState, Slider};
@@ -59,6 +62,8 @@ const MESSAGE_TIME: Duration = Duration::from_secs(4);
 const DROP_BURST: Duration = Duration::from_millis(300);
 /// Arrow keys seek by this many seconds.
 const SEEK_STEP: f64 = 5.0;
+/// Shown when music files are added in a music server mode.
+const LOCAL_ONLY: &str = "switch to local files to play files";
 /// For this long after a pop-up menu opens, losing focus doesn't close it.
 /// Opening a menu can briefly move focus around (on macOS, a right-click
 /// in an inactive app makes the app active, and macOS then refocuses the
@@ -76,6 +81,10 @@ pub enum UserEvent {
     DialogClosed(dialogs::Purpose, Vec<PathBuf>),
     /// A media key, or the desktop's media controls.
     Media(media::Command),
+    /// The music server has answered.
+    Library,
+    /// A track from the web has opened (or failed to), or seeked.
+    Opener,
 }
 
 /// Which of the app's windows something refers to.
@@ -314,7 +323,25 @@ pub struct App {
     pl_font: Option<(Font, u32)>,
     menu_font: Option<(Font, f64)>,
     player: Player,
+    /// Where the music comes from, and its playlist.
+    mode: PlayerMode,
     playlist: Playlist,
+    /// The other modes' playlists, kept while they're not in use.
+    parked: std::collections::HashMap<PlayerMode, Playlist>,
+    /// The music server's library, in the playlist window.
+    browser: Browser,
+    emby: EmbyConfig,
+    squeeze: SqueezeConfig,
+    /// Talks to the mode's music server; none for local files.
+    library: Option<Library>,
+    /// What each request to the library still waiting for an answer was for.
+    library_jobs: std::collections::HashMap<u64, browse::Wanted>,
+    /// Opens tracks from the web without holding up the windows.
+    opener: Opener,
+    /// The job given to `opener` that's still wanted (opening or seeking
+    /// in a track), by its ticket; tickets count up from `last_ticket`.
+    opener_job: Option<u64>,
+    last_ticket: u64,
     metadata: MetadataReader,
     visualizer: Visualizer,
     modifiers: ModifiersState,
@@ -433,7 +460,22 @@ impl App {
             pl_font: None,
             menu_font: None,
             player: Player::new(),
+            mode: PlayerMode::Local,
             playlist: Playlist::default(),
+            parked: std::collections::HashMap::new(),
+            browser: Browser::default(),
+            emby: config.emby.clone(),
+            squeeze: config.squeeze.clone(),
+            library: None,
+            library_jobs: std::collections::HashMap::new(),
+            opener: {
+                let proxy = proxy.clone();
+                Opener::new(move || {
+                    let _ = proxy.send_event(UserEvent::Opener);
+                })
+            },
+            opener_job: None,
+            last_ticket: 0,
             metadata: {
                 let proxy = proxy.clone();
                 MetadataReader::new(move || {
@@ -479,28 +521,15 @@ impl App {
         app.player.set_volume(app.state.volume);
         app.player.set_balance(app.state.balance);
         app.apply_equalizer();
+        // The playlists saved last time are reloaded without playing.
+        // Music given on the command line is played as local files.
+        let mode = if tracks.is_empty() { config.player_mode } else { PlayerMode::Local };
+        app.restore_playlists(mode, config.playlist_current, tracks.is_empty());
+        app.connect_library();
         if !tracks.is_empty() {
             app.add_tracks(tracks, true);
-        } else {
-            app.restore_playlist(config.playlist_current);
         }
         app
-    }
-
-    /// Reloads the playlist saved last time, without starting playback.
-    fn restore_playlist(&mut self, current: Option<usize>) {
-        let Some(path) = config::playlist_path().filter(|p| p.exists()) else { return };
-        match playlist_file::load(&path) {
-            Ok(tracks) => {
-                let added = self.playlist.replace(tracks);
-                self.metadata.request(added);
-                if let Some(index) = current.filter(|&i| i < self.playlist.len()) {
-                    self.playlist.set_current(index);
-                    self.pl.reveal(index, self.playlist.len());
-                }
-            }
-            Err(err) => eprintln!("could not restore the playlist: {err:#}"),
-        }
     }
 
     /// Saves settings, window positions and the playlist for next time.
@@ -521,7 +550,10 @@ impl App {
             visualizer: self.visualizer.mode,
             milkdrop_presets: self.milkdrop_presets.clone(),
             milkdrop_open: self.milkdrop_open,
-            playlist_current: self.playlist.current_index(),
+            player_mode: self.mode,
+            emby: self.emby.clone(),
+            squeeze: self.squeeze.clone(),
+            playlist_current: self.playlist_of(PlayerMode::Local).and_then(Playlist::current_index),
             equalizer: config::EqualizerConfig {
                 enabled: self.eq.enabled,
                 auto: self.eq.auto,
@@ -544,39 +576,118 @@ impl App {
         if let Err(err) = config.save() {
             eprintln!("could not save settings: {err:#}");
         }
-        if let Some(path) = config::playlist_path()
-            && let Err(err) = playlist_file::save_m3u(&path, self.playlist.entries())
-        {
-            eprintln!("could not save the playlist: {err:#}");
-        }
+        self.save_playlists();
     }
 
     // ----- Player actions -----
 
+    /// Plays the playlist's current track. A file starts at once; a track
+    /// from the web is opened in the background, and starts once it has
+    /// (see `opener_done`).
     fn play_current(&mut self) {
-        let Some(path) = self.playlist.current().map(Path::to_path_buf) else { return };
-        match self.player.open(&path) {
-            Ok(()) => {
-                // Opening the file read its details; show them in the list.
-                if let (Some(info), Some(index)) = (self.player.info(), self.playlist.current_index()) {
-                    let id = self.playlist.entries()[index].id;
-                    self.playlist.set_details(id, info.title.clone(), info.duration);
-                    self.pl.reveal(index, self.playlist.len());
-                }
-                self.apply_auto_preset();
+        let Some(entry) = self.playlist.current_index().map(|i| self.playlist.entries()[i].clone()) else { return };
+        self.opener_job = None;
+        if let Some(path) = entry.location.file() {
+            match self.player.open(path) {
+                Ok(()) => self.track_started(),
+                Err(err) => self.show_error(format!("{}: {err:#}", file_name(path))),
             }
-            Err(err) => self.show_error(format!("{}: {err:#}", file_name(&path))),
+        } else if let Some(source) = self.web_source(&entry.location, &entry.title) {
+            self.player.clear();
+            self.last_ticket += 1;
+            self.opener_job = Some(self.last_ticket);
+            self.opener.open(self.last_ticket, source, entry.location);
+            self.show_message(format!("opening: {}", entry.title));
+        } else {
+            self.player.clear();
+            self.show_sign_in("Sign in to play".to_string());
         }
         self.redraw(Kind::Playlist);
     }
 
+    /// Plays on once a track from the web has opened or seeked in the
+    /// background, if that's still wanted.
+    fn opener_done(&mut self) {
+        let finished: Vec<_> = self.opener.results().collect();
+        for (ticket, done) in finished {
+            if self.opener_job != Some(ticket) {
+                continue; // something else was chosen meanwhile
+            }
+            self.opener_job = None;
+            let title = self.playlist.current_index().map(|i| self.playlist.entries()[i].title.clone()).unwrap_or_default();
+            match done {
+                Done::Opened(result) => {
+                    self.message = None;
+                    match result.and_then(|track| self.player.start(track)) {
+                        Ok(()) => self.track_started(),
+                        Err(err) => self.show_error(format!("{title}: {err:#}")),
+                    }
+                }
+                // Asked to go somewhere else meanwhile: go on there.
+                Done::Seeked { track, target, landed } => match self.player.seek_target() {
+                    Some(newer) if newer != target => {
+                        self.last_ticket += 1;
+                        self.opener_job = Some(self.last_ticket);
+                        self.opener.seek(self.last_ticket, track, newer, landed);
+                    }
+                    Some(_) => {
+                        if let Err(err) = self.player.finish_seek(track, landed) {
+                            self.show_error(format!("{title}: {err:#}"));
+                        }
+                    }
+                    None => {}
+                },
+            }
+        }
+    }
+
+    /// Jumps to `seconds` into the track. In a track from the web that can
+    /// wait on the server, so it's done in the background (see
+    /// `opener_done`).
+    fn seek(&mut self, seconds: f64) {
+        let from_web = self.player.info().is_some_and(|info| info.location.file().is_none());
+        if !from_web {
+            if let Err(err) = self.player.seek(seconds) {
+                self.show_message(format!("{err:#}"));
+            }
+        } else if let Some((track, current)) = self.player.start_seek(seconds) {
+            self.last_ticket += 1;
+            self.opener_job = Some(self.last_ticket);
+            self.opener.seek(self.last_ticket, track, seconds, current);
+        }
+    }
+
+    /// Once a track starts: its details (read as it opened) go in the
+    /// playlist, and its equalizer preset is loaded if "auto" is on.
+    fn track_started(&mut self) {
+        if let (Some(info), Some(index)) = (self.player.info(), self.playlist.current_index()) {
+            let id = self.playlist.entries()[index].id;
+            self.playlist.set_details(id, info.title.clone(), info.duration);
+            if self.pl.tab != Some(playlist_window::Tab::Browse) {
+                self.pl.reveal(index, self.playlist.len());
+            }
+        }
+        self.apply_auto_preset();
+    }
+
+    /// Stops playing, and opening a track to play.
+    fn stop(&mut self) {
+        self.opener_job = None;
+        self.player.stop();
+    }
+
     fn play(&mut self) {
-        if self.playlist.is_empty() {
+        if self.playlist.is_empty() && self.mode != PlayerMode::Local {
+            // There's nothing to play yet: show the library to choose from.
+            self.set_playlist_open(true);
+            self.set_tab(playlist_window::Tab::Browse);
+            self.show_message("choose music in the playlist window".to_string());
+        } else if self.playlist.is_empty() {
             self.open_dialog(dialogs::Purpose::PlayFiles);
-        } else if self.player.info().is_none() {
+        } else if self.player.state() == PlayState::Paused {
+            self.player.resume();
+        } else {
             self.play_current();
-        } else if let Err(err) = self.player.play() {
-            self.show_error(format!("{err:#}"));
         }
     }
 
@@ -622,7 +733,7 @@ impl App {
                     self.player.pause();
                 }
             }
-            media::Command::Stop => self.player.stop(),
+            media::Command::Stop => self.stop(),
             media::Command::Next => self.next(),
             media::Command::Previous => self.previous(),
             media::Command::Seek(seconds) => self.seek_by(seconds),
@@ -635,9 +746,7 @@ impl App {
     fn seek_by(&mut self, seconds: f64) {
         if self.player.state() != PlayState::Stopped {
             let target = self.player.position() + seconds;
-            if let Err(err) = self.player.seek(target.max(0.0)) {
-                self.show_message(format!("{err:#}"));
-            }
+            self.seek(target.max(0.0));
         }
     }
 
@@ -847,7 +956,13 @@ impl App {
                 if (view.canvas.width, view.canvas.height) != (self.pl.width, self.pl.window_height()) {
                     view.canvas = Canvas::new(self.pl.width, self.pl.window_height());
                 }
-                playlist_window::draw(&mut view.canvas, &self.skin, &self.pl, &self.playlist, &self.state);
+                playlist_window::draw(&mut view.canvas, &self.skin, &self.pl, &self.playlist, &self.browser, &self.state);
+                if let Some((x, y)) = self.pl.visualizer_position()
+                    && self.state.play_state != PlayState::Stopped
+                {
+                    let width = playlist_window::VISUALIZER_WIDTH;
+                    self.visualizer.draw_cropped(&mut view.canvas, &self.skin, x, y, width);
+                }
 
                 // Track names are drawn on the enlarged image, with the font
                 // loaded at that size, so they're sharp.
@@ -856,11 +971,11 @@ impl App {
                     let px = playlist_window::FONT_PX * scale as f32;
                     self.pl_font = Font::load(&self.skin.playlist.font, px).map(|font| (font, scale));
                 }
-                let (skin, pl, playlist) = (&self.skin, &self.pl, &self.playlist);
+                let (skin, pl, playlist, browser) = (&self.skin, &self.pl, &self.playlist, &self.browser);
                 let font = self.pl_font.as_mut().map(|(font, _)| font);
                 view.present_with(|full_size, scale| {
                     if let Some(font) = font {
-                        playlist_window::draw_track_text(full_size, skin, font, pl, playlist, scale);
+                        playlist_window::draw_list_text(full_size, skin, font, pl, playlist, browser, scale);
                     }
                 })
             }
@@ -914,10 +1029,7 @@ impl App {
         if self.state.dragging.take() == Some(Slider::Position)
             && let Some(duration) = self.player.info().and_then(|i| i.duration)
         {
-            let target = self.state.position as f64 * duration;
-            if let Err(err) = self.player.seek(target) {
-                self.show_message(format!("{err:#}"));
-            }
+            self.seek(self.state.position as f64 * duration);
         }
     }
 
@@ -944,7 +1056,7 @@ impl App {
             Control::Previous => self.previous(),
             Control::Play => self.play(),
             Control::Pause => self.player.pause(),
-            Control::Stop => self.player.stop(),
+            Control::Stop => self.stop(),
             Control::Next => self.next(),
             Control::Eject => self.open_dialog(dialogs::Purpose::PlayFiles),
             Control::Shuffle => self.state.shuffle = !self.state.shuffle,
@@ -975,7 +1087,7 @@ impl App {
                 "z" => self.previous(),
                 "x" => self.play(),
                 "c" => self.player.pause(),
-                "v" => self.player.stop(),
+                "v" => self.stop(),
                 "b" => self.next(),
                 "l" => self.open_dialog(dialogs::Purpose::PlayFiles),
                 _ => {}
@@ -1192,10 +1304,18 @@ impl ApplicationHandler<UserEvent> for App {
                 self.media_command(command);
                 self.redraw_all();
             }
+            UserEvent::Library => {
+                self.library_replies();
+                self.redraw_all();
+            }
+            UserEvent::Opener => {
+                self.opener_done();
+                self.redraw_all();
+            }
             UserEvent::Metadata => {
                 let results: Vec<_> = self.metadata.results().collect();
                 for details in results {
-                    self.playlist.set_details(details.id, details.title, details.duration);
+                    self.set_details(details.id, details.title, details.duration);
                 }
                 self.redraw(Kind::Playlist);
             }
@@ -1341,11 +1461,14 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::DroppedFile(path) => self.file_dropped(path, kind),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                let text = event.text.clone();
                 // Option on a Mac types other characters (Option+S is "ß"),
                 // so Alt shortcuts go by the key itself.
                 let logical_key =
                     if self.modifiers.alt_key() { event.key_without_modifiers() } else { event.logical_key };
-                if logical_key == Key::Named(NamedKey::Escape) {
+                if kind == Kind::Playlist && self.field_key_pressed(&logical_key, text.as_deref()) {
+                    // typed into the search box or sign-in form
+                } else if logical_key == Key::Named(NamedKey::Escape) {
                     self.close_text_menu();
                     self.pl.open_menu = None;
                 } else if kind == Kind::Playlist && self.pl_key_pressed(&logical_key) {

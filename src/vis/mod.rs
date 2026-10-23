@@ -145,6 +145,21 @@ impl Visualizer {
         }
     }
 
+    /// Draws the visualizer cut down to `width` pixels across, keeping
+    /// its left part: the playlist window's has less room.
+    pub fn draw_cropped(&self, canvas: &mut Canvas, skin: &Skin, x: i32, y: i32, width: i32) {
+        if self.mode == Mode::Off {
+            return;
+        }
+        let mut full = Canvas::new(WIDTH as u32, HEIGHT as u32);
+        self.draw(&mut full, skin, 0, 0);
+        for dy in 0..HEIGHT {
+            for dx in 0..width.min(WIDTH) {
+                canvas.set(x + dx, y + dy, full.pixels[(dy * WIDTH + dx) as usize]);
+            }
+        }
+    }
+
     /// The tiny version shown in the main window's shade mode: 38 x 5
     /// pixels, without the dotted background or peaks.
     pub fn draw_small(&self, canvas: &mut Canvas, skin: &Skin, x: i32, y: i32) {

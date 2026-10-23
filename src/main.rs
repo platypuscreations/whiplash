@@ -18,6 +18,8 @@ mod app;
 mod audio;
 mod config;
 mod eqf;
+mod library;
+mod location;
 mod metadata;
 mod playlist;
 mod playlist_file;

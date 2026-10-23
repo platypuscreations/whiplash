@@ -21,13 +21,13 @@ mod mpris;
 #[cfg(windows)]
 mod smtc;
 
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use winit::event_loop::EventLoopProxy;
 
 use super::UserEvent;
 use crate::audio::{PlayState, Player};
+use crate::location::Location;
 
 /// What the desktop asked the player to do.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -52,7 +52,7 @@ pub enum Command {
 /// What the desktop is told about the current track.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Track {
-    pub path: PathBuf,
+    pub location: Location,
     /// The tagged title, or the file name.
     pub title: String,
     pub artist: Option<String>,
@@ -85,7 +85,7 @@ const SEEK_THRESHOLD: f64 = 1.5;
 pub struct MediaControls {
     backend: Option<Backend>,
     /// What the desktop was last told, to send only what changed.
-    track: Option<PathBuf>,
+    track: Option<Location>,
     status: PlayState,
     position: f64,
     position_sent: Option<Instant>,
@@ -146,12 +146,12 @@ impl MediaControls {
             updates.push(Update::Repeat(repeat));
         }
 
-        let path = info.map(|i| &i.path);
-        if path != self.track.as_ref() {
-            self.track = path.cloned();
+        let location = info.map(|i| &i.location);
+        if location != self.track.as_ref() {
+            self.track = location.cloned();
             updates.push(Update::Track(info.map(|info| Track {
-                path: info.path.clone(),
-                title: info.tags.title.clone().unwrap_or_else(|| super::file_name(&info.path)),
+                location: info.location.clone(),
+                title: info.tags.title.clone().unwrap_or_else(|| info.location.fallback_title()),
                 artist: info.tags.artist.clone(),
                 album: info.tags.album.clone(),
                 duration: info.duration,

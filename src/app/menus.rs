@@ -8,7 +8,7 @@ use winit::event_loop::ActiveEventLoop;
 use super::dialogs::{self, Purpose};
 use super::{App, Kind, Show, View, file_name, is_skin, open_skin};
 use crate::audio::{self, PlayState};
-use crate::config;
+use crate::config::{self, PlayerMode};
 use crate::eqf;
 use crate::ui::eq_window;
 use crate::ui::menu::{self, Action, Item, Menu};
@@ -74,9 +74,18 @@ impl App {
     /// The main menu: from the "O" buttons or a right-click.
     pub(super) fn open_options_menu(&mut self, event_loop: &ActiveEventLoop, over: Kind) {
         let mode = self.visualizer.mode;
-        let items = vec![
+        let mut items = vec![
             Item::new("Play file(s)...", Action::PlayFiles).shortcut("L"),
             Item::new("Play folder...", Action::PlayFolder),
+            Item::separator(),
+            Item::new("Local files", Action::PlayerMode(PlayerMode::Local)).checked(self.mode == PlayerMode::Local),
+            Item::new("Emby", Action::PlayerMode(PlayerMode::Emby)).checked(self.mode == PlayerMode::Emby),
+            Item::new("Squeeze", Action::PlayerMode(PlayerMode::Squeeze)).checked(self.mode == PlayerMode::Squeeze),
+        ];
+        if self.mode != PlayerMode::Local {
+            items.push(Item::new("Server settings...", Action::ServerSettings));
+        }
+        items.extend([
             Item::separator(),
             Item::new("Skin browser...", Action::SkinBrowser).shortcut("Alt+S"),
             Item::separator(),
@@ -97,7 +106,7 @@ impl App {
             Item::new("About Whiplash Player...", Action::About),
             Item::separator(),
             Item::new("Exit", Action::Exit),
-        ];
+        ]);
         self.open_menu(event_loop, over, items);
     }
 
@@ -168,8 +177,7 @@ impl App {
 
     /// The name auto-load presets are filed under: the current song's file name.
     pub(super) fn auto_preset_key(&self) -> Option<String> {
-        let info = self.player.info()?;
-        Some(info.path.file_name()?.to_string_lossy().into_owned())
+        self.player.info()?.location.preset_key()
     }
 
     /// When "auto" is on, applies the current song's saved preset, if any.
@@ -200,6 +208,11 @@ impl App {
 
             Action::PlayFiles => self.open_dialog(Purpose::PlayFiles),
             Action::PlayFolder => self.open_dialog(Purpose::PlayFolder),
+            Action::PlayerMode(mode) => self.set_player_mode(mode),
+            Action::ServerSettings => {
+                self.set_playlist_open(true);
+                self.show_sign_in(String::new());
+            }
             Action::SkinBrowser => self.open_skin_browser(event_loop, Kind::Main),
             Action::ToggleEqualizer => self.set_equalizer_open(!self.state.equalizer_open),
             Action::TogglePlaylist => self.set_playlist_open(!self.state.playlist_open),
@@ -274,7 +287,7 @@ impl App {
         if self.state.play_state == PlayState::Stopped && matches!(action, Action::Visualizer(_)) {
             self.visualizer.reset();
         }
-        self.pl.scroll_to(self.pl.scroll as isize, self.playlist.len());
+        self.pl.scroll_to(self.pl.scroll as isize, self.pl_rows());
         self.redraw_all();
     }
 
@@ -282,8 +295,14 @@ impl App {
     pub(super) fn show_file_info(&mut self) {
         let index = self.playlist.first_selected().or(self.playlist.current_index());
         let Some(entry) = index.map(|i| &self.playlist.entries()[i]) else { return };
-        let mut text = format!("{}\n\n{}", entry.title, entry.path.display());
-        match audio::read_info(&entry.path) {
+        let mut text = format!("{}\n\n{}", entry.title, entry.location);
+        // A track from a server is only looked at while it plays.
+        let info = match (entry.location.file(), self.player.info()) {
+            (Some(path), _) => audio::read_info(path),
+            (None, Some(info)) if info.location == entry.location => Ok(info.clone()),
+            (None, _) => return dialogs::message_box("File info", text),
+        };
+        match info {
             Ok(info) => {
                 let length = info.duration.map_or("unknown".into(), |d| {
                     crate::ui::playlist_window::format_duration(d.round() as u64)

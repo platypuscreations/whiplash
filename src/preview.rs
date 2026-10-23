@@ -11,7 +11,9 @@ use crate::skin::Skin;
 use crate::ui::canvas::Canvas;
 use crate::ui::eq_window::{self, EqState};
 use crate::ui::main_window::{self, MainState, PlayState};
-use crate::ui::playlist_window::{self, MenuButton, PlaylistView};
+use crate::library::{Item, ItemKind};
+use crate::ui::browse::{Browser, Field};
+use crate::ui::playlist_window::{self, MenuButton, PlaylistView, Tab};
 use crate::ui::text::Font;
 use crate::vis::{Mode, Visualizer};
 
@@ -77,10 +79,54 @@ pub fn render(skin: &Skin, out: &Path, scale: u32) -> Result<()> {
     pieces.push((scaled(&canvas, scale), right, y));
     y += eq_window::HEIGHT + GAP;
 
+    let browser = Browser::default();
     let view = PlaylistView { focused: true, ..PlaylistView::default() };
-    pieces.push((playlist_window(skin, &view, &playlist, &playing, scale), left, y));
+    pieces.push((playlist_window(skin, &view, &playlist, &browser, &playing, scale), left, y));
     let menu = PlaylistView { open_menu: Some(MenuButton::Add), ..PlaylistView::default() };
-    pieces.push((playlist_window(skin, &menu, &playlist, &paused, scale), right, y));
+    pieces.push((playlist_window(skin, &menu, &playlist, &browser, &paused, scale), right, y));
+    y += view.height + GAP;
+
+    // A music server mode: browsing an artist's albums, and the playlist
+    // with a search being typed.
+    let mut browser = Browser::default();
+    browser.open("Artists".into(), 0, None);
+    browser.open("Whiplash".into(), 0, None);
+    let level = browser.level_mut();
+    level.selected = Some(1);
+    for (i, (name, year)) in [("Night Drive", "2019"), ("Neon Rain", "2021"), ("Afterglow", "2024")].into_iter().enumerate() {
+        level.items.push(Item { kind: ItemKind::Album, id: i.to_string(), title: name.into(), detail: year.into(), duration: None });
+    }
+    let view = PlaylistView { focused: true, tab: Some(Tab::Browse), ..PlaylistView::default() };
+    pieces.push((playlist_window(skin, &view, &playlist, &browser, &playing, scale), left, y));
+    browser.search.insert("neon");
+    browser.focus = Some(Field::Search);
+    let queue = PlaylistView { tab: Some(Tab::Queue), ..view };
+    pieces.push((playlist_window(skin, &queue, &playlist, &browser, &playing, scale), right, y));
+    let view = PlaylistView { tab: Some(Tab::Browse), ..view };
+    y += view.height + GAP;
+    // Search results, with another search being typed.
+    let mut searched = Browser::default();
+    searched.open("Search: neon".into(), 0, None);
+    let level = searched.level_mut();
+    let found = [
+        (ItemKind::Artist, "Neon Lights", "artist", None),
+        (ItemKind::Album, "Neon Rain", "album", None),
+        (ItemKind::Track, "Whiplash - Neon Rain", "", Some(224.0)),
+    ];
+    for (i, (kind, title, detail, duration)) in found.into_iter().enumerate() {
+        level.items.push(Item { kind, id: i.to_string(), title: title.into(), detail: detail.into(), duration });
+    }
+    searched.search.insert("neon rai");
+    searched.focus = Some(Field::Search);
+    pieces.push((playlist_window(skin, &view, &playlist, &searched, &paused, scale), left, y));
+    let mut signing_in = Browser::default();
+    for (field, text) in signing_in.form.iter_mut().zip(["http://media:8096", "luke", "secret"]) {
+        field.insert(text);
+    }
+    signing_in.focus = Some(Field::Form(2));
+    signing_in.form_status = "Signing in...".into();
+    let form = PlaylistView { signing_in: true, ..view };
+    pieces.push((playlist_window(skin, &form, &playlist, &signing_in, &paused, scale), right, y));
     y += view.height + GAP;
 
     // Shade mode strips, focused and not.
@@ -100,7 +146,7 @@ pub fn render(skin: &Skin, out: &Path, scale: u32) -> Result<()> {
         pieces.push((scaled(&canvas, scale), x, strip_y));
         strip_y += eq_window::SHADE_HEIGHT + GAP / 2;
         let view = PlaylistView { shaded: true, focused, ..PlaylistView::default() };
-        pieces.push((playlist_window(skin, &view, &playlist, &playing, scale), x, strip_y));
+        pieces.push((playlist_window(skin, &view, &playlist, &browser, &playing, scale), x, strip_y));
     }
     y += 3 * (playlist_window::SHADE_HEIGHT + GAP / 2) + GAP / 2;
 
@@ -124,11 +170,11 @@ fn window(width: u32, height: u32, draw: impl FnOnce(&mut Canvas)) -> Canvas {
 
 /// The playlist window enlarged, with its track list drawn at full size
 /// as the app does.
-fn playlist_window(skin: &Skin, view: &PlaylistView, playlist: &Playlist, main: &MainState, scale: u32) -> Canvas {
-    let canvas = window(view.width, view.window_height(), |c| playlist_window::draw(c, skin, view, playlist, main));
+fn playlist_window(skin: &Skin, view: &PlaylistView, playlist: &Playlist, browser: &Browser, main: &MainState, scale: u32) -> Canvas {
+    let canvas = window(view.width, view.window_height(), |c| playlist_window::draw(c, skin, view, playlist, browser, main));
     let mut big = scaled(&canvas, scale);
     if let Some(mut font) = Font::load(&skin.playlist.font, playlist_window::FONT_PX * scale as f32) {
-        playlist_window::draw_track_text(&mut big, skin, &mut font, view, playlist, scale);
+        playlist_window::draw_list_text(&mut big, skin, &mut font, view, playlist, browser, scale);
     }
     big
 }

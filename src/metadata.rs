@@ -8,6 +8,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 use crate::audio;
+use crate::location::Location;
 
 /// What was learned about one playlist entry.
 pub struct Details {
@@ -43,9 +44,13 @@ impl MetadataReader {
         MetadataReader { requests, results }
     }
 
-    pub fn request(&self, entries: Vec<(u64, PathBuf)>) {
-        for entry in entries {
-            let _ = self.requests.send(entry);
+    /// Asks for the details of these entries. Only files are read: a
+    /// server's library already gave its tracks' details.
+    pub fn request(&self, entries: Vec<(u64, Location)>) {
+        for (id, location) in entries {
+            if let Some(path) = location.file() {
+                let _ = self.requests.send((id, path.to_path_buf()));
+            }
         }
     }
 

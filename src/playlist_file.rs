@@ -1,12 +1,15 @@
-//! Playlist files (M3U and PLS) and finding music in folders.
+//! Playlist files (M3U and PLS), finding music in folders, and the saved
+//! playlists of the music server modes.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 
 use crate::audio::EXTENSIONS;
-use crate::playlist::Entry;
+use crate::location::Location;
+use crate::playlist::{Entry, Playlist};
 
 pub const PLAYLIST_EXTENSIONS: &[&str] = &["m3u", "m3u8", "pls"];
 
@@ -114,17 +117,62 @@ fn resolve(line: &str, base: &Path) -> Option<PathBuf> {
 }
 
 /// Writes an extended M3U playlist. Tracks inside the playlist's folder are
-/// saved with relative paths, so the folder can be moved as a whole.
+/// saved with relative paths, so the folder can be moved as a whole. Only
+/// files are saved.
 pub fn save_m3u(path: &Path, entries: &[Entry]) -> Result<()> {
     let base = path.parent().unwrap_or(Path::new("."));
     let mut text = String::from("#EXTM3U\n");
     for entry in entries {
+        let Some(file) = entry.location.file() else { continue };
         let seconds = entry.duration.map_or(-1, |d| d.round() as i64);
         text.push_str(&format!("#EXTINF:{seconds},{}\n", entry.title));
-        let track = entry.path.strip_prefix(base).unwrap_or(&entry.path);
+        let track = file.strip_prefix(base).unwrap_or(file);
         text.push_str(&format!("{}\n", track.display()));
     }
     fs::write(path, text).with_context(|| format!("writing {}", path.display()))
+}
+
+/// A music server mode's playlist, saved between runs. Unlike M3U it
+/// keeps the server's own ids for the tracks.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct SavedQueue {
+    /// Which track was current (counting from 0).
+    current: Option<usize>,
+    tracks: Vec<SavedTrack>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SavedTrack {
+    location: Location,
+    title: String,
+    duration: Option<f64>,
+}
+
+pub fn save_queue(path: &Path, playlist: &Playlist) -> Result<()> {
+    let queue = SavedQueue {
+        current: playlist.current_index(),
+        tracks: playlist
+            .entries()
+            .iter()
+            .map(|e| SavedTrack { location: e.location.clone(), title: e.title.clone(), duration: e.duration })
+            .collect(),
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, toml::to_string(&queue)?).with_context(|| format!("writing {}", path.display()))
+}
+
+pub fn load_queue(path: &Path) -> Result<Playlist> {
+    let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let queue: SavedQueue = toml::from_str(&text).with_context(|| format!("reading {}", path.display()))?;
+    let mut playlist = Playlist::default();
+    playlist.append_known(queue.tracks.into_iter().map(|t| (t.location, t.title, t.duration)).collect());
+    if let Some(index) = queue.current.filter(|&i| i < playlist.len()) {
+        playlist.set_current(index);
+    }
+    Ok(playlist)
 }
 
 #[cfg(test)]
@@ -166,8 +214,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("whiplash-test-m3u-{}", std::process::id()));
         fs::create_dir_all(dir.join("music")).unwrap();
         let entries = vec![
-            Entry { id: 1, path: dir.join("music/a.mp3"), title: "A".into(), duration: Some(61.4), selected: false },
-            Entry { id: 2, path: abs("/elsewhere/b.flac"), title: "B".into(), duration: None, selected: false },
+            Entry { id: 1, location: dir.join("music/a.mp3").into(), title: "A".into(), duration: Some(61.4), selected: false },
+            Entry { id: 2, location: abs("/elsewhere/b.flac").into(), title: "B".into(), duration: None, selected: false },
         ];
         let list = dir.join("list.m3u");
         save_m3u(&list, &entries).unwrap();
@@ -176,6 +224,23 @@ mod tests {
         assert!(text.contains(&format!("#EXTINF:-1,B\n{ROOT}/elsewhere/b.flac\n")), "{text}");
         assert_eq!(load(&list).unwrap(), [dir.join("music/a.mp3"), abs("/elsewhere/b.flac")]);
         fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn queues_round_trip() {
+        let path = std::env::temp_dir().join(format!("whiplash-test-queue-{}.toml", std::process::id()));
+        let mut playlist = Playlist::default();
+        playlist.append_known(vec![
+            (abs("/a.mp3").into(), "A".into(), Some(61.5)),
+            (abs("/b.mp3").into(), "B".into(), None),
+        ]);
+        playlist.set_current(1);
+        save_queue(&path, &playlist).unwrap();
+        let loaded = load_queue(&path).unwrap();
+        let summary = |p: &Playlist| -> Vec<_> { p.entries().iter().map(|e| (e.location.clone(), e.title.clone(), e.duration)).collect() };
+        assert_eq!(summary(&loaded), summary(&playlist));
+        assert_eq!(loaded.current_index(), Some(1));
+        fs::remove_file(path).ok();
     }
 
     #[test]

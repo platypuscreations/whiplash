@@ -19,8 +19,9 @@ use std::path::PathBuf;
 use anyhow::Context;
 use winit::event_loop::EventLoopProxy;
 
-use super::{App, UserEvent, file_name, open_skin};
+use super::{App, LOCAL_ONLY, UserEvent, file_name, open_skin};
 use crate::audio;
+use crate::config::PlayerMode;
 use crate::eqf;
 use crate::playlist_file;
 
@@ -39,6 +40,15 @@ pub enum Purpose {
     LoadEqPreset,
     SaveEqPreset,
     MilkDropPresetsFolder,
+}
+
+impl Purpose {
+    /// For music files or playlist files, which only the local files
+    /// mode plays.
+    fn local_only(self) -> bool {
+        use Purpose::*;
+        matches!(self, PlayFiles | PlayFolder | AddFiles | AddFolder | LoadPlaylist | SavePlaylist)
+    }
 }
 
 /// What a dialog lets you choose.
@@ -140,6 +150,9 @@ impl App {
         if self.dialog_open {
             return;
         }
+        if purpose.local_only() && self.mode != PlayerMode::Local {
+            return self.show_message(LOCAL_ONLY.to_string());
+        }
         self.dialog_open = true;
         show(purpose, self.proxy.clone());
     }
@@ -186,7 +199,7 @@ impl App {
                 self.show_message(format!("milkdrop presets folder set{note}"));
             }
         }
-        self.pl.scroll_to(self.pl.scroll as isize, self.playlist.len());
+        self.pl.scroll_to(self.pl.scroll as isize, self.pl_rows());
     }
 }
 

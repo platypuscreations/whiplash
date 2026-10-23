@@ -3,6 +3,7 @@
 A native music player for macOS, Linux and Windows that uses classic Winamp 2.x skins (`.wsz` files). Whiplash (`whiplash` for short) lives at <https://github.com/platypuscreations/whiplash>.
 
 - Plays MP3, FLAC, Ogg Vorbis, WAV, AIFF and AAC/ALAC (M4A).
+- Plays from an Emby server or a Logitech Media Server, browsing its library in the playlist window.
 - Shows the classic spectrum analyzer or oscilloscope in each skin's colors.
 - Has a 10-band equalizer that loads and saves Winamp `.eqf` presets.
 - Has a resizable playlist editor that reads and writes M3U and PLS playlists.
@@ -176,6 +177,34 @@ The keyboard's play/pause, next and previous keys control Whiplash even when it'
 
 With an empty playlist, the media keys do nothing.
 
+### Music servers (Emby and Squeeze)
+
+Whiplash can play your music library from a server on your network instead of from files. Right-click the main window and choose a mode:
+
+- **Local files:** files on this computer, as usual.
+- **Emby:** an [Emby](https://emby.media) server's music library.
+- **Squeeze:** a [Logitech Media Server](https://lyrion.org) (now called Lyrion Music Server), the server Squeezebox players play from.
+
+Each mode has its own playlist, kept between runs. Switching modes stops what's playing.
+
+In a server mode, the playlist window gets two tabs: **Browse** for the server's library and **Queue** for the playlist. The first time, Browse asks for the server's address and how to sign in:
+
+- **Emby:** the address (such as `media:8096`), and your Emby user name and password. Whiplash keeps only the sign-in token Emby gives it, not the password.
+- **Squeeze:** the address (such as `music:9000`). Leave the user name and password empty unless the server is password-protected.
+
+To change these later, choose **Server settings...** from the main menu.
+
+| Input | Action |
+|---|---|
+| Double-click Artists or Albums, an artist or an album | Open it |
+| Click the top row (‹ ...), ← or Backspace | Go back up |
+| Double-click a track, Enter | Play the list it's in, starting with that track (replaces the playlist) |
+| Select, then ADD | Add the track, album or artist's tracks to the playlist |
+| Click the search box, Ctrl+F (Cmd+F) | Search; Enter searches, Esc clears |
+| Ctrl+V (Cmd+V) in the search box or sign-in form | Paste |
+
+Tracks play through Whiplash itself, so the equalizer, visualizers and MilkDrop work just as with files. Whiplash streams the original files, so the server doesn't convert them; very large files (such as high-resolution FLAC) need a network that can keep up.
+
 ## Settings
 
 Whiplash saves its settings, window positions and playlist when it quits. They go in its settings folder, which also holds the **Skins** and **Presets** folders:
@@ -183,6 +212,8 @@ Whiplash saves its settings, window positions and playlist when it quits. They g
 - **macOS:** `~/Library/Application Support/whiplash`. In Finder, choose **Go → Go to Folder...** and paste that path.
 - **Linux:** `~/.config/whiplash`
 - **Windows:** `%APPDATA%\whiplash\config`. Paste that into File Explorer's address bar.
+
+In the music server modes, the playlists are saved as `queue-emby.toml` and `queue-squeeze.toml`. The server addresses are kept in `settings.toml`, with Emby's sign-in token and, for a password-protected Logitech Media Server, its password in plain text.
 
 If something goes wrong while playing (the sound device can't be opened, say), Whiplash shows the error in its display and also adds it to `whiplash.log` in the same folder.
 
@@ -238,6 +269,9 @@ The tag must match the version in `Cargo.toml`, or the release step stops with a
 cargo test
 # Also play real files through the sound card (needs an audio device):
 WHIPLASH_TEST_AUDIO=path/to/folder cargo test -- --ignored --nocapture
+# Browse and stream from real music servers:
+WHIPLASH_TEST_EMBY="http://media:8096 user password" cargo test emby -- --ignored --nocapture
+WHIPLASH_TEST_SQUEEZE="http://music:9000" cargo test squeeze -- --ignored --nocapture
 ```
 
 Downloaded skins are other people's artwork: the `skins/` folder in this repository is ignored by git, for local test skins. The built-in skin is drawn by code in `src/skin/builtin/`; its colors are in `palette.rs`.

@@ -554,7 +554,7 @@ impl App {
     // ----- Player actions -----
 
     fn play_current(&mut self) {
-        let Some(path) = self.playlist.current().map(Path::to_path_buf) else { return };
+        let Some(path) = self.playlist.current().and_then(|l| l.file()).map(Path::to_path_buf) else { return };
         match self.player.open(&path) {
             Ok(()) => {
                 // Opening the file read its details; show them in the list.

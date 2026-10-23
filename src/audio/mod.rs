@@ -265,7 +265,7 @@ impl Player {
             self.settings.paused.store(false, Relaxed);
             return Ok(());
         }
-        match self.info.as_ref().map(|info| info.path.clone()) {
+        match self.info.as_ref().and_then(|info| info.location.file()).map(Path::to_path_buf) {
             Some(path) => self.open(&path),
             None => Ok(()),
         }

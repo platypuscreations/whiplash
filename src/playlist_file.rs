@@ -114,14 +114,16 @@ fn resolve(line: &str, base: &Path) -> Option<PathBuf> {
 }
 
 /// Writes an extended M3U playlist. Tracks inside the playlist's folder are
-/// saved with relative paths, so the folder can be moved as a whole.
+/// saved with relative paths, so the folder can be moved as a whole. Only
+/// files are saved.
 pub fn save_m3u(path: &Path, entries: &[Entry]) -> Result<()> {
     let base = path.parent().unwrap_or(Path::new("."));
     let mut text = String::from("#EXTM3U\n");
     for entry in entries {
+        let Some(file) = entry.location.file() else { continue };
         let seconds = entry.duration.map_or(-1, |d| d.round() as i64);
         text.push_str(&format!("#EXTINF:{seconds},{}\n", entry.title));
-        let track = entry.path.strip_prefix(base).unwrap_or(&entry.path);
+        let track = file.strip_prefix(base).unwrap_or(file);
         text.push_str(&format!("{}\n", track.display()));
     }
     fs::write(path, text).with_context(|| format!("writing {}", path.display()))
@@ -166,8 +168,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("whiplash-test-m3u-{}", std::process::id()));
         fs::create_dir_all(dir.join("music")).unwrap();
         let entries = vec![
-            Entry { id: 1, path: dir.join("music/a.mp3"), title: "A".into(), duration: Some(61.4), selected: false },
-            Entry { id: 2, path: abs("/elsewhere/b.flac"), title: "B".into(), duration: None, selected: false },
+            Entry { id: 1, location: dir.join("music/a.mp3").into(), title: "A".into(), duration: Some(61.4), selected: false },
+            Entry { id: 2, location: abs("/elsewhere/b.flac").into(), title: "B".into(), duration: None, selected: false },
         ];
         let list = dir.join("list.m3u");
         save_m3u(&list, &entries).unwrap();

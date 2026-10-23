@@ -168,8 +168,7 @@ impl App {
 
     /// The name auto-load presets are filed under: the current song's file name.
     pub(super) fn auto_preset_key(&self) -> Option<String> {
-        let info = self.player.info()?;
-        Some(info.path.file_name()?.to_string_lossy().into_owned())
+        self.player.info()?.location.preset_key()
     }
 
     /// When "auto" is on, applies the current song's saved preset, if any.
@@ -282,8 +281,9 @@ impl App {
     pub(super) fn show_file_info(&mut self) {
         let index = self.playlist.first_selected().or(self.playlist.current_index());
         let Some(entry) = index.map(|i| &self.playlist.entries()[i]) else { return };
-        let mut text = format!("{}\n\n{}", entry.title, entry.path.display());
-        match audio::read_info(&entry.path) {
+        let mut text = format!("{}\n\n{}", entry.title, entry.location);
+        let Some(path) = entry.location.file() else { return dialogs::message_box("File info", text) };
+        match audio::read_info(path) {
             Ok(info) => {
                 let length = info.duration.map_or("unknown".into(), |d| {
                     crate::ui::playlist_window::format_duration(d.round() as u64)

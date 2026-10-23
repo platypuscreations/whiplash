@@ -1,6 +1,6 @@
 //! The list of tracks, which one is playing, and which are selected.
 
-use std::path::{Path, PathBuf};
+use crate::location::Location;
 
 /// One track in the playlist.
 #[derive(Clone, Debug)]
@@ -8,7 +8,7 @@ pub struct Entry {
     /// Stays the same when the list is sorted or edited, so the playing
     /// track can be found again.
     pub id: u64,
-    pub path: PathBuf,
+    pub location: Location,
     /// The file name until the file's tags have been read.
     pub title: String,
     /// Length in seconds, once known.
@@ -55,8 +55,8 @@ impl Playlist {
         self.entries.iter().position(|e| e.id == id)
     }
 
-    pub fn current(&self) -> Option<&Path> {
-        self.current_index().map(|i| self.entries[i].path.as_path())
+    pub fn current(&self) -> Option<&Location> {
+        self.current_index().map(|i| &self.entries[i].location)
     }
 
     /// Position of the current track, counting from 1 as Winamp displays it.
@@ -68,27 +68,27 @@ impl Playlist {
         self.current = self.entries.get(index).map(|e| e.id);
     }
 
-    /// Replaces the whole list. Returns the new entries' ids and paths, so
-    /// their details can be looked up.
-    pub fn replace(&mut self, paths: Vec<PathBuf>) -> Vec<(u64, PathBuf)> {
+    /// Replaces the whole list. Returns the new entries' ids and locations,
+    /// so their details can be looked up.
+    pub fn replace(&mut self, tracks: Vec<impl Into<Location>>) -> Vec<(u64, Location)> {
         self.entries.clear();
         self.current = None;
         self.anchor = None;
-        self.append(paths)
+        self.append(tracks)
     }
 
-    /// Adds tracks at the end. Returns the new entries' ids and paths.
-    pub fn append(&mut self, paths: Vec<PathBuf>) -> Vec<(u64, PathBuf)> {
-        let added: Vec<(u64, PathBuf)> = paths
+    /// Adds tracks at the end. Returns the new entries' ids and locations.
+    pub fn append(&mut self, tracks: Vec<impl Into<Location>>) -> Vec<(u64, Location)> {
+        let added: Vec<(u64, Location)> = tracks
             .into_iter()
-            .map(|path| {
+            .map(|track| {
                 self.next_id += 1;
-                (self.next_id, path)
+                (self.next_id, track.into())
             })
             .collect();
-        for (id, path) in &added {
-            let title = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-            self.entries.push(Entry { id: *id, path: path.clone(), title, duration: None, selected: false });
+        for (id, location) in &added {
+            let title = location.fallback_title();
+            self.entries.push(Entry { id: *id, location: location.clone(), title, duration: None, selected: false });
         }
         if self.current_index().is_none() && !self.entries.is_empty() {
             self.current = Some(self.entries[0].id);
@@ -107,7 +107,7 @@ impl Playlist {
     /// Moves to the next track. In shuffle mode that is a random other
     /// track. At the end of the list, wraps to the start if `wrap` is set,
     /// otherwise returns `None` and stays put.
-    pub fn next(&mut self, shuffle: bool, wrap: bool) -> Option<&Path> {
+    pub fn next(&mut self, shuffle: bool, wrap: bool) -> Option<&Location> {
         let len = self.entries.len();
         if len == 0 {
             return None;
@@ -128,7 +128,7 @@ impl Playlist {
     }
 
     /// Moves to the previous track, wrapping from the first to the last.
-    pub fn previous(&mut self) -> Option<&Path> {
+    pub fn previous(&mut self) -> Option<&Location> {
         let len = self.entries.len();
         if len == 0 {
             return None;
@@ -209,7 +209,7 @@ impl Playlist {
     /// Removes tracks whose files no longer exist; returns how many.
     pub fn remove_missing(&mut self) -> usize {
         let before = self.entries.len();
-        self.remove_where(|e| !e.path.exists());
+        self.remove_where(|e| !e.location.exists());
         before - self.entries.len()
     }
 
@@ -218,11 +218,11 @@ impl Playlist {
     }
 
     pub fn sort_by_file_name(&mut self) {
-        self.entries.sort_by_cached_key(|e| e.path.file_name().map(|n| n.to_string_lossy().to_lowercase()));
+        self.entries.sort_by_cached_key(|e| e.location.name_sort_key());
     }
 
     pub fn sort_by_path(&mut self) {
-        self.entries.sort_by_cached_key(|e| e.path.to_string_lossy().to_lowercase());
+        self.entries.sort_by_cached_key(|e| e.location.path_sort_key());
     }
 
     pub fn reverse(&mut self) {
@@ -269,6 +269,11 @@ impl Playlist {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    fn file(name: &str) -> Location {
+        Location::File(PathBuf::from(name))
+    }
 
     fn playlist(n: usize) -> Playlist {
         let mut list = Playlist::default();
@@ -287,13 +292,13 @@ mod tests {
     #[test]
     fn next_and_previous_in_order() {
         let mut list = playlist(3);
-        assert_eq!(list.current(), Some(Path::new("0.mp3")));
-        assert_eq!(list.next(false, false), Some(Path::new("1.mp3")));
-        assert_eq!(list.next(false, false), Some(Path::new("2.mp3")));
+        assert_eq!(list.current(), Some(&file("0.mp3")));
+        assert_eq!(list.next(false, false), Some(&file("1.mp3")));
+        assert_eq!(list.next(false, false), Some(&file("2.mp3")));
         assert_eq!(list.next(false, false), None);
-        assert_eq!(list.current(), Some(Path::new("2.mp3")));
-        assert_eq!(list.next(false, true), Some(Path::new("0.mp3")));
-        assert_eq!(list.previous(), Some(Path::new("2.mp3")));
+        assert_eq!(list.current(), Some(&file("2.mp3")));
+        assert_eq!(list.next(false, true), Some(&file("0.mp3")));
+        assert_eq!(list.previous(), Some(&file("2.mp3")));
         assert_eq!(list.current_number(), 3);
     }
 
@@ -335,18 +340,18 @@ mod tests {
         let mut list = playlist(5);
         list.set_current(2);
         list.reverse();
-        assert_eq!(list.current(), Some(Path::new("2.mp3")));
+        assert_eq!(list.current(), Some(&file("2.mp3")));
         assert_eq!(list.current_number(), 3);
 
         list.click(0, Select::Only); // "4"
         list.remove_selected();
         assert_eq!(names(&list), ["3", "2", "1", "0"]);
-        assert_eq!(list.current(), Some(Path::new("2.mp3")));
+        assert_eq!(list.current(), Some(&file("2.mp3")));
 
         // Removing the playing track moves "current" to the one after it.
         list.click(1, Select::Only);
         list.remove_selected();
-        assert_eq!(list.current(), Some(Path::new("1.mp3")));
+        assert_eq!(list.current(), Some(&file("1.mp3")));
     }
 
     #[test]

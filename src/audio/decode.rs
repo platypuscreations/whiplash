@@ -1,7 +1,7 @@
 //! Reading audio files with symphonia and turning them into stereo samples.
 
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use symphonia::core::codecs::audio::AudioDecoder;
@@ -12,6 +12,8 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::StandardTag;
 use symphonia::core::units::{Time, TimeBase};
 
+use crate::location::Location;
+
 /// File extensions offered in the open-file dialog.
 pub const EXTENSIONS: &[&str] = &[
     "mp3", "flac", "ogg", "oga", "wav", "wave", "aif", "aiff", "aifc", "m4a", "mp4", "aac", "caf", "mka", "webm",
@@ -20,7 +22,7 @@ pub const EXTENSIONS: &[&str] = &[
 /// Facts about a track, for display.
 #[derive(Clone, Debug)]
 pub struct TrackInfo {
-    pub path: PathBuf,
+    pub location: Location,
     /// "Artist - Title" from the file's tags, or the file name.
     pub title: String,
     /// The file's own tags, for the system's now-playing display.
@@ -107,7 +109,7 @@ impl Track {
             decoder,
             track_id,
             time_base,
-            info: TrackInfo { path: path.to_owned(), title, tags, duration, sample_rate, channels, kbps },
+            info: TrackInfo { location: Location::File(path.to_owned()), title, tags, duration, sample_rate, channels, kbps },
             skip_frames: 0,
             interleaved: Vec::new(),
             stereo: Vec::new(),
@@ -214,6 +216,7 @@ fn read_tags(format: &mut dyn FormatReader) -> Tags {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     /// Writes a 16-bit PCM WAV file with `frames` frames of a rising ramp.
     fn write_wav(path: &Path, rate: u32, channels: u16, frames: u32) {

@@ -47,7 +47,7 @@ impl App {
             let target = match kind {
                 Kind::Main => Target::Main(main_window::hit_test(x, y, self.state.shaded)),
                 Kind::Equalizer => Target::Equalizer(eq_window::hit_test(x, y, self.eq.shaded)),
-                Kind::Playlist => Target::Playlist(playlist_window::hit_test(&self.pl, self.playlist.len(), x, y)),
+                Kind::Playlist => Target::Playlist(playlist_window::hit_test(&self.pl, self.pl_rows(), x, y)),
                 Kind::Menu => return None,
             };
             self.tooltip_text(target).map(|_| target)
@@ -245,6 +245,9 @@ impl App {
                 playlist_window::Hit::ScrollBar => "Scroll".into(),
                 playlist_window::Hit::Resize => "Resize".into(),
                 playlist_window::Hit::Track(_)
+                | playlist_window::Hit::BrowseRow(_)
+                | playlist_window::Hit::Tab(_)
+                | playlist_window::Hit::SearchBox
                 | playlist_window::Hit::BelowTracks
                 | playlist_window::Hit::TitleBar
                 | playlist_window::Hit::Nothing => return None,

@@ -12,10 +12,10 @@ use crate::config::PlayerMode;
 use crate::playlist::Select;
 use crate::playlist_file;
 use crate::ui::menu::{Action, Item};
-use crate::ui::playlist_window::{self, Hit, MenuItem, PlControl, PlaylistView};
+use crate::ui::playlist_window::{self, Hit, MenuItem, PlControl, PlaylistView, Tab};
 
 /// Two clicks on the same track this close together count as a double-click.
-const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+pub(super) const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 /// What a mouse drag in the playlist window is doing.
 #[derive(Clone, Copy, Debug)]
@@ -68,7 +68,9 @@ impl App {
     pub(super) fn pl_mouse_down(&mut self) {
         let Some(view) = &self.pl_view else { return };
         let (x, y) = view.cursor_in_skin();
-        let hit = playlist_window::hit_test(&self.pl, self.playlist.len(), x, y);
+        let hit = playlist_window::hit_test(&self.pl, self.pl_rows(), x, y);
+        // Clicking anywhere else stops typing in the search box.
+        self.browser.searching = hit == Hit::SearchBox;
 
         // Clicking anywhere outside an open button menu closes it.
         if self.pl.open_menu.is_some() {
@@ -89,10 +91,14 @@ impl App {
             }
             Hit::MenuItem(_) | Hit::Nothing => {}
             Hit::Track(index) => self.track_pressed(index),
+            Hit::BrowseRow(row) => self.browse_row_pressed(row),
+            Hit::BelowTracks if self.pl.tab == Some(Tab::Browse) => self.browser.level_mut().selected = None,
             Hit::BelowTracks => self.playlist.select_all(false),
+            Hit::Tab(tab) => self.set_tab(tab),
+            Hit::SearchBox => {}
             Hit::ScrollBar => {
                 self.pl.dragging_scrollbar = true;
-                self.pl.scroll = self.pl.scroll_for_handle(y, self.playlist.len());
+                self.pl.scroll = self.pl.scroll_for_handle(y, self.pl_rows());
             }
             Hit::Resize => {
                 let (width, height) = (self.pl.width as i32, self.pl.window_height() as i32);
@@ -131,18 +137,18 @@ impl App {
         let (x, y) = view.cursor_in_skin();
 
         if self.pl.open_menu.is_some() {
-            self.pl.hovered = match playlist_window::hit_test(&self.pl, self.playlist.len(), x, y) {
+            self.pl.hovered = match playlist_window::hit_test(&self.pl, self.pl_rows(), x, y) {
                 Hit::MenuItem(item) => Some(item),
                 _ => None,
             };
         }
         if self.pl.dragging_scrollbar {
-            self.pl.scroll = self.pl.scroll_for_handle(y, self.playlist.len());
+            self.pl.scroll = self.pl.scroll_for_handle(y, self.pl_rows());
         }
         match self.pl_drag {
             Some(PlDrag::Reorder { row, .. }) => {
                 // Which track row the mouse is over, even past the ends.
-                let over = self.pl.scroll as isize + (y - 23).div_euclid(playlist_window::ROW_HEIGHT) as isize;
+                let over = self.pl.scroll as isize + (y - self.pl.list_top()).div_euclid(playlist_window::ROW_HEIGHT) as isize;
                 let over = over.clamp(0, self.playlist.len() as isize - 1) as usize;
                 if over != row {
                     self.playlist.move_selected(over as isize - row as isize);
@@ -158,7 +164,7 @@ impl App {
                 if (width, height) != (self.pl.width, self.pl.height) {
                     self.pl.width = width;
                     self.pl.height = height;
-                    self.pl.scroll_to(self.pl.scroll as isize, self.playlist.len());
+                    self.pl.scroll_to(self.pl.scroll as isize, self.pl_rows());
                     if let Some(size) = self.window_size(Kind::Playlist) {
                         view.resize(size);
                     }
@@ -171,7 +177,7 @@ impl App {
     pub(super) fn pl_mouse_up(&mut self, event_loop: &ActiveEventLoop) {
         let Some(view) = &self.pl_view else { return };
         let (x, y) = view.cursor_in_skin();
-        let hit = playlist_window::hit_test(&self.pl, self.playlist.len(), x, y);
+        let hit = playlist_window::hit_test(&self.pl, self.pl_rows(), x, y);
         self.pl.dragging_scrollbar = false;
 
         if let Some(PlDrag::Reorder { row, moved: false }) = self.pl_drag.take() {
@@ -198,7 +204,7 @@ impl App {
     }
 
     pub(super) fn pl_scroll_by(&mut self, rows: isize) {
-        self.pl.scroll_to(self.pl.scroll as isize + rows, self.playlist.len());
+        self.pl.scroll_to(self.pl.scroll as isize + rows, self.pl_rows());
     }
 
     fn pl_activate(&mut self, control: PlControl) {
@@ -247,12 +253,15 @@ impl App {
             MenuItem::SaveList => self.open_dialog(Purpose::SavePlaylist),
             MenuItem::LoadList => self.open_dialog(Purpose::LoadPlaylist),
         }
-        self.pl.scroll_to(self.pl.scroll as isize, self.playlist.len());
+        self.pl.scroll_to(self.pl.scroll as isize, self.pl_rows());
     }
 
     /// Playlist keys: arrows move the selection, Enter plays, Delete
     /// removes, Ctrl/Cmd+A selects all. Returns false for other keys.
     pub(super) fn pl_key_pressed(&mut self, key: &Key) -> bool {
+        if self.pl.tab == Some(Tab::Browse) {
+            return self.browse_key_pressed(key);
+        }
         let len = self.playlist.len();
         match key {
             Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown) if len > 0 => {
@@ -271,7 +280,7 @@ impl App {
             }
             Key::Named(NamedKey::Delete | NamedKey::Backspace) => {
                 self.playlist.remove_selected();
-                self.pl.scroll_to(self.pl.scroll as isize, self.playlist.len());
+                self.pl.scroll_to(self.pl.scroll as isize, self.pl_rows());
             }
             Key::Character(c) if c.eq_ignore_ascii_case("a") && self.command_key() => self.playlist.select_all(true),
             _ => return false,

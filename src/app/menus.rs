@@ -278,7 +278,7 @@ impl App {
         if self.state.play_state == PlayState::Stopped && matches!(action, Action::Visualizer(_)) {
             self.visualizer.reset();
         }
-        self.pl.scroll_to(self.pl.scroll as isize, self.playlist.len());
+        self.pl.scroll_to(self.pl.scroll as isize, self.pl_rows());
         self.redraw_all();
     }
 

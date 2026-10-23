@@ -5,6 +5,7 @@
 //! windows have their own files.
 
 mod desktop;
+mod browse;
 mod dialogs;
 mod equalizer;
 mod media;
@@ -37,6 +38,7 @@ use crate::config::{self, Config, PlayerMode, WindowsConfig};
 use crate::metadata::MetadataReader;
 use crate::playlist::Playlist;
 use crate::skin::Skin;
+use crate::ui::browse::Browser;
 use crate::ui::canvas::Canvas;
 use crate::ui::eq_window::{self, EqState};
 use crate::ui::main_window::{self, Control, Hit, MainState, Slider};
@@ -321,6 +323,8 @@ pub struct App {
     playlist: Playlist,
     /// The other modes' playlists, kept while they're not in use.
     parked: std::collections::HashMap<PlayerMode, Playlist>,
+    /// The music server's library, in the playlist window.
+    browser: Browser,
     metadata: MetadataReader,
     visualizer: Visualizer,
     modifiers: ModifiersState,
@@ -442,6 +446,7 @@ impl App {
             mode: PlayerMode::Local,
             playlist: Playlist::default(),
             parked: std::collections::HashMap::new(),
+            browser: Browser::default(),
             metadata: {
                 let proxy = proxy.clone();
                 MetadataReader::new(move || {
@@ -552,7 +557,9 @@ impl App {
                 if let (Some(info), Some(index)) = (self.player.info(), self.playlist.current_index()) {
                     let id = self.playlist.entries()[index].id;
                     self.playlist.set_details(id, info.title.clone(), info.duration);
-                    self.pl.reveal(index, self.playlist.len());
+                    if self.pl.tab != Some(playlist_window::Tab::Browse) {
+                        self.pl.reveal(index, self.playlist.len());
+                    }
                 }
                 self.apply_auto_preset();
             }
@@ -838,7 +845,7 @@ impl App {
                 if (view.canvas.width, view.canvas.height) != (self.pl.width, self.pl.window_height()) {
                     view.canvas = Canvas::new(self.pl.width, self.pl.window_height());
                 }
-                playlist_window::draw(&mut view.canvas, &self.skin, &self.pl, &self.playlist, &self.state);
+                playlist_window::draw(&mut view.canvas, &self.skin, &self.pl, &self.playlist, &self.browser, &self.state);
 
                 // Track names are drawn on the enlarged image, with the font
                 // loaded at that size, so they're sharp.
@@ -847,11 +854,11 @@ impl App {
                     let px = playlist_window::FONT_PX * scale as f32;
                     self.pl_font = Font::load(&self.skin.playlist.font, px).map(|font| (font, scale));
                 }
-                let (skin, pl, playlist) = (&self.skin, &self.pl, &self.playlist);
+                let (skin, pl, playlist, browser) = (&self.skin, &self.pl, &self.playlist, &self.browser);
                 let font = self.pl_font.as_mut().map(|(font, _)| font);
                 view.present_with(|full_size, scale| {
                     if let Some(font) = font {
-                        playlist_window::draw_track_text(full_size, skin, font, pl, playlist, scale);
+                        playlist_window::draw_list_text(full_size, skin, font, pl, playlist, browser, scale);
                     }
                 })
             }
@@ -1332,11 +1339,17 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::DroppedFile(path) => self.file_dropped(path, kind),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                let text = event.text.clone();
                 // Option on a Mac types other characters (Option+S is "ß"),
                 // so Alt shortcuts go by the key itself.
                 let logical_key =
                     if self.modifiers.alt_key() { event.key_without_modifiers() } else { event.logical_key };
-                if logical_key == Key::Named(NamedKey::Escape) {
+                if kind == Kind::Playlist
+                    && self.browser.searching
+                    && self.search_key_pressed(&logical_key, text.as_deref())
+                {
+                    // typed into the search box
+                } else if logical_key == Key::Named(NamedKey::Escape) {
                     self.close_text_menu();
                     self.pl.open_menu = None;
                 } else if kind == Kind::Playlist && self.pl_key_pressed(&logical_key) {

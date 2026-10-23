@@ -6,6 +6,8 @@ use super::App;
 use crate::config::{self, PlayerMode};
 use crate::playlist::Playlist;
 use crate::playlist_file;
+use crate::ui::browse::Browser;
+use crate::ui::playlist_window::Tab;
 
 impl App {
     /// Loads every mode's saved playlist and makes `mode` the one in use.
@@ -26,7 +28,8 @@ impl App {
             }
         }
         self.mode = mode;
-        if let Some(index) = self.playlist.current_index() {
+        self.pl.tab = tab_for(mode);
+        if self.pl.tab.is_none() && let Some(index) = self.playlist.current_index() {
             self.pl.reveal(index, self.playlist.len());
         }
     }
@@ -92,10 +95,20 @@ impl App {
         let previous = std::mem::replace(&mut self.playlist, playlist);
         self.parked.insert(self.mode, previous);
         self.mode = mode;
+        self.browser = Browser::default();
+        self.pl.tab = tab_for(mode);
         self.pl.scroll = 0;
-        if let Some(index) = self.playlist.current_index() {
+        self.pl.queue_scroll = 0;
+        self.last_click = None;
+        if self.pl.tab.is_none() && let Some(index) = self.playlist.current_index() {
             self.pl.reveal(index, self.playlist.len());
         }
         self.show_message(format!("player mode: {}", mode.name()));
     }
+}
+
+/// Which tab the playlist window opens on in `mode`: a music server's
+/// library, or none for local files.
+fn tab_for(mode: PlayerMode) -> Option<Tab> {
+    (mode != PlayerMode::Local).then_some(Tab::Browse)
 }

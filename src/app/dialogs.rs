@@ -199,7 +199,7 @@ impl App {
                 self.show_message(format!("milkdrop presets folder set{note}"));
             }
         }
-        self.pl.scroll_to(self.pl.scroll as isize, self.playlist.len());
+        self.pl.scroll_to(self.pl.scroll as isize, self.pl_rows());
     }
 }
 

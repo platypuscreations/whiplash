@@ -4,7 +4,12 @@
 //! pixels), so its frame is assembled from tiles in the skin's
 //! `pledit.bmp`. Positions follow Webamp's `playlist-window.css` (MIT
 //! license, https://github.com/captbaritone/webamp).
+//!
+//! In a music server mode, tabs along the top of the list switch between
+//! the playlist and a browser for the server's library. The frame stays
+//! the same.
 
+use super::browse::{Browser, Row};
 use super::canvas::Canvas;
 use super::main_window::{MainState, PlayState};
 use super::text::Font;
@@ -29,6 +34,31 @@ const RIGHT: i32 = 20;
 /// Space above the first track.
 const LIST_PADDING: i32 = 3;
 const SCROLL_HANDLE_HEIGHT: i32 = 18;
+/// The tabs, in a music server mode.
+const TAB_HEIGHT: i32 = 12;
+const TAB_WIDTH: i32 = 40;
+/// The search box, below the tabs while browsing.
+const SEARCH_HEIGHT: i32 = 13;
+
+/// What the list shows in a music server mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tab {
+    /// The server's library.
+    Browse,
+    /// The playlist.
+    Queue,
+}
+
+impl Tab {
+    const ALL: [Tab; 2] = [Tab::Browse, Tab::Queue];
+
+    fn label(self) -> &'static str {
+        match self {
+            Tab::Browse => "Browse",
+            Tab::Queue => "Queue",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlControl {
@@ -128,8 +158,13 @@ pub struct PlaylistView {
     pub height: u32,
     /// Shrunk to a strip ("windowshade" mode).
     pub shaded: bool,
-    /// Index of the first visible track.
+    /// Index of the first visible row.
     pub scroll: usize,
+    /// The tab showing, in a music server mode; none for local files,
+    /// which have no tabs.
+    pub tab: Option<Tab>,
+    /// The playlist's scroll position while the library shows.
+    pub queue_scroll: usize,
     pub focused: bool,
     pub pressed: Option<PlControl>,
     pub open_menu: Option<MenuButton>,
@@ -145,6 +180,8 @@ impl Default for PlaylistView {
             height: MIN_HEIGHT + 2 * HEIGHT_STEP,
             shaded: false,
             scroll: 0,
+            tab: None,
+            queue_scroll: 0,
             focused: false,
             pressed: None,
             open_menu: None,
@@ -164,9 +201,19 @@ impl PlaylistView {
         if self.shaded { SHADE_HEIGHT } else { self.height }
     }
 
-    /// How many tracks fit in the window.
+    /// Where the list's first row is, below the tabs and search box.
+    pub fn list_top(&self) -> i32 {
+        TOP + LIST_PADDING
+            + match self.tab {
+                None => 0,
+                Some(Tab::Queue) => TAB_HEIGHT,
+                Some(Tab::Browse) => TAB_HEIGHT + SEARCH_HEIGHT,
+            }
+    }
+
+    /// How many rows fit in the window.
     pub fn visible_rows(&self) -> usize {
-        ((self.height as i32 - TOP - BOTTOM - 2 * LIST_PADDING) / ROW_HEIGHT).max(0) as usize
+        ((self.height as i32 - BOTTOM - LIST_PADDING - self.list_top()) / ROW_HEIGHT).max(0) as usize
     }
 
     pub fn max_scroll(&self, track_count: usize) -> usize {
@@ -233,15 +280,25 @@ pub enum Hit {
     MenuItem(MenuItem),
     /// A track, by its index in the playlist.
     Track(usize),
-    /// The empty space below the last track.
+    /// A row of the library browser.
+    BrowseRow(usize),
+    /// The empty space below the last row.
     BelowTracks,
+    Tab(Tab),
+    SearchBox,
     ScrollBar,
     Resize,
     TitleBar,
     Nothing,
 }
 
-pub fn hit_test(view: &PlaylistView, track_count: usize, x: i32, y: i32) -> Hit {
+/// How many rows the list shown has: tracks, or the browser's rows.
+pub fn rows(view: &PlaylistView, playlist: &Playlist, browser: &Browser) -> usize {
+    if view.tab == Some(Tab::Browse) { browser.rows() } else { playlist.len() }
+}
+
+/// What's at (x, y). `row_count` is how many rows the list has (see `rows`).
+pub fn hit_test(view: &PlaylistView, row_count: usize, x: i32, y: i32) -> Hit {
     let (width, height) = view.size();
     let inside = |rx: i32, ry: i32, w: i32, h: i32| x >= rx && x < rx + w && y >= ry && y < ry + h;
     if view.shaded {
@@ -296,21 +353,31 @@ pub fn hit_test(view: &PlaylistView, track_count: usize, x: i32, y: i32) -> Hit 
         return Hit::ScrollBar;
     }
     if inside(LEFT, TOP, width - LEFT - RIGHT, height - TOP - BOTTOM) {
-        let row = (y - TOP - LIST_PADDING).div_euclid(ROW_HEIGHT);
+        if let Some(tab) = view.tab {
+            if y < TOP + TAB_HEIGHT {
+                let column = (x - LEFT) / TAB_WIDTH;
+                return Tab::ALL.get(column as usize).map_or(Hit::Nothing, |&tab| Hit::Tab(tab));
+            }
+            if tab == Tab::Browse && y < TOP + TAB_HEIGHT + SEARCH_HEIGHT {
+                return Hit::SearchBox;
+            }
+        }
+        let row = (y - view.list_top()).div_euclid(ROW_HEIGHT);
         let index = view.scroll as i32 + row;
-        return if row >= 0 && (row as usize) < view.visible_rows() && (index as usize) < track_count {
-            Hit::Track(index as usize)
-        } else {
-            Hit::BelowTracks
+        let shown = row >= 0 && (row as usize) < view.visible_rows() && (index as usize) < row_count;
+        return match (shown, view.tab) {
+            (true, Some(Tab::Browse)) => Hit::BrowseRow(index as usize),
+            (true, _) => Hit::Track(index as usize),
+            (false, _) => Hit::BelowTracks,
         };
     }
     if inside(0, 0, width, TOP) { Hit::TitleBar } else { Hit::Nothing }
 }
 
-/// Draws the window at skin size, except the track names and lengths:
-/// those are drawn afterwards at the screen's full resolution by
-/// `draw_track_text`, so they stay sharp.
-pub fn draw(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: &Playlist, main: &MainState) {
+/// Draws the window at skin size, except the list's text: that's drawn
+/// afterwards at the screen's full resolution by `draw_list_text`, so it
+/// stays sharp.
+pub fn draw(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: &Playlist, browser: &Browser, main: &MainState) {
     use skin::*;
     if view.shaded {
         return draw_shaded(canvas, skin, view, playlist);
@@ -353,9 +420,9 @@ pub fn draw(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: &Pl
 
     // Scrollbar handle.
     let handle = if view.dragging_scrollbar { PL_SCROLL_HANDLE_SELECTED } else { PL_SCROLL_HANDLE };
-    canvas.draw(skin, handle, width - 15, view.scroll_handle_y(playlist.len()));
+    canvas.draw(skin, handle, width - 15, view.scroll_handle_y(rows(view, playlist, browser)));
 
-    draw_track_backgrounds(canvas, skin, view, playlist);
+    draw_list_backgrounds(canvas, skin, view, playlist, browser);
     draw_status(canvas, skin, view, playlist, main);
 
     // The open button menu, with its bar to the left.
@@ -371,25 +438,73 @@ pub fn draw(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: &Pl
     }
 }
 
-/// The list's background, with selected tracks highlighted.
-fn draw_track_backgrounds(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: &Playlist) {
+/// The list's background, with selected rows highlighted, and the tabs
+/// and search box in a music server mode.
+fn draw_list_backgrounds(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: &Playlist, browser: &Browser) {
     let (width, height) = view.size();
     let style = &skin.playlist;
     let (left, right) = (LEFT, width - RIGHT);
     canvas.fill_rect(left, TOP, (right - left) as u32, (height - TOP - BOTTOM) as u32, style.normal_bg);
+
+    if let Some(tab) = view.tab {
+        // The tab showing is highlighted like a selected row, and joined
+        // to a line under the tabs.
+        let column = Tab::ALL.iter().position(|&t| t == tab).unwrap_or(0) as i32;
+        canvas.fill_rect(left + column * TAB_WIDTH, TOP, TAB_WIDTH as u32, TAB_HEIGHT as u32, style.selected_bg);
+        canvas.fill_rect(left, TOP + TAB_HEIGHT - 1, (right - left) as u32, 1, style.selected_bg);
+        if tab == Tab::Browse {
+            let color = if browser.searching { style.normal } else { mix(style.normal, style.normal_bg) };
+            let (x, y, w, h) = search_box(width);
+            canvas.fill_rect(x, y, w as u32, 1, color);
+            canvas.fill_rect(x, y + h - 1, w as u32, 1, color);
+            canvas.fill_rect(x, y, 1, h as u32, color);
+            canvas.fill_rect(x + w - 1, y, 1, h as u32, color);
+        }
+    }
+
     for row in 0..view.visible_rows() {
-        let Some(entry) = playlist.entries().get(view.scroll + row) else { break };
-        if entry.selected {
-            let top = TOP + LIST_PADDING + row as i32 * ROW_HEIGHT;
+        let index = view.scroll + row;
+        let selected = if view.tab == Some(Tab::Browse) {
+            match browser.row(index) {
+                Some(Row::Item(item, _)) => browser.level().selected == Some(item),
+                Some(Row::Back) => false,
+                None => break,
+            }
+        } else {
+            let Some(entry) = playlist.entries().get(index) else { break };
+            entry.selected
+        };
+        if selected {
+            let top = view.list_top() + row as i32 * ROW_HEIGHT;
             canvas.fill_rect(left, top, (right - left) as u32, ROW_HEIGHT as u32, style.selected_bg);
         }
     }
 }
 
-/// Draws the track names and lengths onto the enlarged window, where each
-/// skin pixel is `scale` x `scale` screen pixels. `font` must be loaded at
+/// The search box's outline: left, top, width and height.
+fn search_box(width: i32) -> (i32, i32, i32, i32) {
+    (LEFT + 2, TOP + TAB_HEIGHT + 1, width - LEFT - RIGHT - 4, SEARCH_HEIGHT - 1)
+}
+
+/// Halfway between two colors, for hints such as the empty search box's.
+fn mix(a: u32, b: u32) -> u32 {
+    let channel = |shift: u32| (((a >> shift) & 0xFF) + ((b >> shift) & 0xFF)) / 2 << shift;
+    channel(16) | channel(8) | channel(0)
+}
+
+/// Draws the list's text onto the enlarged window, where each skin pixel
+/// is `scale` x `scale` screen pixels: track names and lengths, or the
+/// browser's rows, and the tabs and search box. `font` must be loaded at
 /// `FONT_PX * scale`. Text never covers an open button menu.
-pub fn draw_track_text(canvas: &mut Canvas, skin: &Skin, font: &mut Font, view: &PlaylistView, playlist: &Playlist, scale: u32) {
+pub fn draw_list_text(
+    canvas: &mut Canvas,
+    skin: &Skin,
+    font: &mut Font,
+    view: &PlaylistView,
+    playlist: &Playlist,
+    browser: &Browser,
+    scale: u32,
+) {
     if view.shaded {
         return;
     }
@@ -398,37 +513,137 @@ pub fn draw_track_text(canvas: &mut Canvas, skin: &Skin, font: &mut Font, view: 
     let style = &skin.playlist;
     let (left, right) = (LEFT * s, (width - RIGHT) * s);
 
-    // An open button menu (and its bar) covers part of the list.
+    // An open button menu (and its bar) covers part of the list. Text may
+    // go everywhere on a line, or either side of the menu.
     let layout = view.menu_layout();
     let menu = layout.first().zip(layout.last()).map(|(&(_, _, x, top), &(_, _, _, bottom))| {
         ((x - 3) * s, (x + 22) * s, top * s, (bottom + 18) * s)
     });
-
-    let current = playlist.current_index();
-    for row in 0..view.visible_rows() {
-        let index = view.scroll + row;
-        let Some(entry) = playlist.entries().get(index) else { break };
-        let top = (TOP + LIST_PADDING + row as i32 * ROW_HEIGHT) * s;
-        let row_height = ROW_HEIGHT * s;
-        let color = if Some(index) == current { style.current } else { style.normal };
-
-        // Where text may go on this row: everywhere, or either side of the menu.
-        let clips: Vec<(i32, i32)> = match menu {
-            Some((menu_left, menu_right, menu_top, menu_bottom)) if top < menu_bottom && top + row_height > menu_top => {
+    let clips = |top: i32, height: i32| -> Vec<(i32, i32)> {
+        match menu {
+            Some((menu_left, menu_right, menu_top, menu_bottom)) if top < menu_bottom && top + height > menu_top => {
                 vec![(left, menu_left), (menu_right, right)]
             }
             _ => vec![(left, right)],
-        };
-        let within = |(a, b): (i32, i32), (c, d): (i32, i32)| (a.max(c), b.min(d));
-
-        // The length on the right, then the title shortened to fit before it.
-        let length = entry.duration.map(|d| format_duration(d.round() as u64)).unwrap_or_default();
-        let length_x = right - 3 * s - font.width(&length);
-        let title = font.fit(&format!("{}. {}", index + 1, entry.title), length_x - 6 * s - (left + 2 * s));
-        for &clip in &clips {
-            font.draw(canvas, &length, length_x, top, row_height, color, within(clip, (left, right)));
-            font.draw(canvas, &title, left + 2 * s, top, row_height, color, within(clip, (left, length_x - 2 * s)));
         }
+    };
+    let within = |(a, b): (i32, i32), (c, d): (i32, i32)| (a.max(c), b.min(d));
+
+    if let Some(tab) = view.tab {
+        let (top, height) = (TOP * s, (TAB_HEIGHT - 1) * s);
+        for (column, each) in Tab::ALL.into_iter().enumerate() {
+            let x = (LEFT + column as i32 * TAB_WIDTH) * s;
+            let label = each.label();
+            let color = if each == tab { style.current } else { style.normal };
+            let label_x = x + (TAB_WIDTH * s - font.width(label)) / 2;
+            for clip in clips(top, height) {
+                font.draw(canvas, label, label_x, top, height, color, within(clip, (x, x + TAB_WIDTH * s)));
+            }
+        }
+        if tab == Tab::Browse {
+            draw_search_text(canvas, font, style, browser, width, s, &clips(top, height));
+        }
+    }
+
+    let current = playlist.current_index();
+    let browsing = view.tab == Some(Tab::Browse);
+    let mut drawn = 0;
+    for row in 0..view.visible_rows() {
+        let index = view.scroll + row;
+        let (title, length, color) = if browsing {
+            match browser.row(index) {
+                None => break,
+                Some(Row::Back) => (format!("‹ {}", browser.path()), String::new(), style.current),
+                Some(Row::Item(_, item)) => {
+                    let length = match (item.duration, item.kind) {
+                        (Some(d), _) => format_duration(d.round() as u64),
+                        (None, crate::library::ItemKind::Track) => item.detail.clone(),
+                        // Lists that open further are marked.
+                        (None, _) if item.detail.is_empty() => "›".to_string(),
+                        (None, _) => item.detail.clone(),
+                    };
+                    (item.title.clone(), length, style.normal)
+                }
+            }
+        } else {
+            let Some(entry) = playlist.entries().get(index) else { break };
+            let length = entry.duration.map(|d| format_duration(d.round() as u64)).unwrap_or_default();
+            let color = if Some(index) == current { style.current } else { style.normal };
+            (format!("{}. {}", index + 1, entry.title), length, color)
+        };
+        let top = (view.list_top() + row as i32 * ROW_HEIGHT) * s;
+        draw_row(canvas, font, &title, &length, color, top, ROW_HEIGHT * s, (left, right), &clips(top, ROW_HEIGHT * s), s);
+        drawn += 1;
+    }
+
+    // Below the browser's rows: that more are on the way.
+    if browsing && browser.level().loading && drawn < view.visible_rows() {
+        let top = (view.list_top() + drawn as i32 * ROW_HEIGHT) * s;
+        let color = mix(style.normal, style.normal_bg);
+        draw_row(canvas, font, "Loading...", "", color, top, ROW_HEIGHT * s, (left, right), &clips(top, ROW_HEIGHT * s), s);
+    }
+}
+
+/// One row of the list: the title on the left, shortened to fit before
+/// the length on the right.
+#[allow(clippy::too_many_arguments)]
+fn draw_row(
+    canvas: &mut Canvas,
+    font: &mut Font,
+    title: &str,
+    length: &str,
+    color: u32,
+    top: i32,
+    height: i32,
+    (left, right): (i32, i32),
+    clips: &[(i32, i32)],
+    s: i32,
+) {
+    let within = |(a, b): (i32, i32), (c, d): (i32, i32)| (a.max(c), b.min(d));
+    let length_x = right - 3 * s - font.width(length);
+    let title = font.fit(title, length_x - 6 * s - (left + 2 * s));
+    for &clip in clips {
+        font.draw(canvas, length, length_x, top, height, color, within(clip, (left, right)));
+        font.draw(canvas, &title, left + 2 * s, top, height, color, within(clip, (left, length_x - 2 * s)));
+    }
+}
+
+/// The search box's text, or a hint while it's empty, and the caret
+/// while typing. Long text is drawn from far enough in that the caret
+/// shows.
+fn draw_search_text(
+    canvas: &mut Canvas,
+    font: &mut Font,
+    style: &crate::skin::PlaylistStyle,
+    browser: &Browser,
+    width: i32,
+    s: i32,
+    clips: &[(i32, i32)],
+) {
+    let (x, y, w, h) = search_box(width);
+    let (left, right, top, height) = ((x + 2) * s, (x + w - 2) * s, (y + 1) * s, (h - 2) * s);
+    let within = |(a, b): (i32, i32)| (a.max(left), b.min(right));
+    let field = &browser.search;
+    if field.text().is_empty() && !browser.searching {
+        let hint = mix(style.normal, style.normal_bg);
+        for &clip in clips {
+            font.draw(canvas, "Search", left, top, height, hint, within(clip));
+        }
+        return;
+    }
+    let chars: Vec<char> = field.text().chars().collect();
+    let caret = field.caret().min(chars.len());
+    let text = |from: usize, to: usize| chars[from..to].iter().collect::<String>();
+    let mut start = 0;
+    while start < caret && font.width(&text(start, caret)) > right - left - s {
+        start += 1;
+    }
+    for &clip in clips {
+        font.draw(canvas, &text(start, chars.len()), left, top, height, style.normal, within(clip));
+    }
+    if browser.searching {
+        let caret_x = left + font.width(&text(start, caret));
+        canvas.fill_rect(caret_x, top + s, (s / 2).max(1) as u32, (height - 2 * s).max(1) as u32, style.normal);
     }
 }
 
@@ -554,6 +769,26 @@ mod tests {
         let bottom = view.height as i32 - 30;
         assert_eq!(hit_test(&view, 10, 50, bottom + 2), Hit::MenuItem(MenuItem::RemoveSelected));
         assert_eq!(hit_test(&view, 10, 50, bottom - 3 * 18 + 2), Hit::MenuItem(MenuItem::RemoveMisc));
+    }
+
+    #[test]
+    fn tabs_move_the_list_down() {
+        let mut view = PlaylistView { tab: Some(Tab::Queue), ..PlaylistView::default() };
+        assert_eq!(hit_test(&view, 10, LEFT + 5, TOP + 2), Hit::Tab(Tab::Browse));
+        assert_eq!(hit_test(&view, 10, LEFT + TAB_WIDTH + 5, TOP + 2), Hit::Tab(Tab::Queue));
+        assert_eq!(hit_test(&view, 10, LEFT + 3 * TAB_WIDTH, TOP + 2), Hit::Nothing);
+        let first = TOP + LIST_PADDING + TAB_HEIGHT;
+        assert_eq!(hit_test(&view, 10, 50, first + 1), Hit::Track(0));
+
+        view.tab = Some(Tab::Browse);
+        assert_eq!(hit_test(&view, 10, 50, first + 1), Hit::SearchBox);
+        assert_eq!(hit_test(&view, 10, 50, first + SEARCH_HEIGHT + 1), Hit::BrowseRow(0));
+        assert_eq!(hit_test(&view, 1, 50, first + SEARCH_HEIGHT + ROW_HEIGHT + 1), Hit::BelowTracks);
+
+        // Even the smallest window shows two rows of the library.
+        view.height = MIN_HEIGHT;
+        assert_eq!(view.visible_rows(), 2);
+        assert_eq!(PlaylistView { height: MIN_HEIGHT, tab: Some(Tab::Queue), ..view }.visible_rows(), 3);
     }
 
     #[test]

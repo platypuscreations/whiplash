@@ -38,6 +38,7 @@ pub struct Config {
     /// Where the music comes from.
     pub player_mode: PlayerMode,
     pub emby: EmbyConfig,
+    pub squeeze: SqueezeConfig,
     /// Which track in the saved playlist was current (counting from 0).
     pub playlist_current: Option<usize>,
     pub equalizer: EqualizerConfig,
@@ -85,6 +86,18 @@ pub struct EmbyConfig {
     pub device_id: String,
 }
 
+/// A Logitech Media Server. It has no signing in: if it's protected by a
+/// password, the password goes with every request, so it's kept here (in
+/// plain text).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SqueezeConfig {
+    /// Such as "http://music:9000". Empty until the server has answered.
+    pub url: String,
+    pub user: String,
+    pub password: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EqualizerConfig {
@@ -128,6 +141,7 @@ impl Default for Config {
             milkdrop_open: false,
             player_mode: PlayerMode::Local,
             emby: EmbyConfig::default(),
+            squeeze: SqueezeConfig::default(),
             playlist_current: None,
             equalizer: EqualizerConfig::default(),
             windows: WindowsConfig { playlist_open: true, ..WindowsConfig::default() },

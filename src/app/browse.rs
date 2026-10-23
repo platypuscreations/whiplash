@@ -8,8 +8,8 @@ use winit::keyboard::{Key, NamedKey};
 use super::playlist::DOUBLE_CLICK;
 use super::{App, UserEvent};
 use crate::audio::Source;
-use crate::config::{EmbyConfig, PlayerMode};
-use crate::library::{self, Item, ItemKind, Job, Library, Reply, Request, ServerConfig, SignedOut, emby};
+use crate::config::{EmbyConfig, PlayerMode, SqueezeConfig};
+use crate::library::{self, Item, ItemKind, Job, Library, Reply, Request, ServerConfig, SignedOut, emby, squeeze};
 use crate::location::Location;
 use crate::ui::browse::{Browser, FORM_FIELDS, Field, PASSWORD, Row};
 use crate::ui::playlist_window::{self, Tab};
@@ -51,15 +51,17 @@ impl App {
     /// The mode's server and how we're signed in to it; none for local files.
     fn server_config(&self) -> Option<ServerConfig> {
         match self.mode {
-            PlayerMode::Local | PlayerMode::Squeeze => None,
+            PlayerMode::Local => None,
             PlayerMode::Emby => Some(ServerConfig::Emby(self.emby.clone())),
+            PlayerMode::Squeeze => Some(ServerConfig::Squeeze(self.squeeze.clone())),
         }
     }
 
     fn signed_in(&self) -> bool {
         match self.mode {
-            PlayerMode::Local | PlayerMode::Squeeze => false,
+            PlayerMode::Local => false,
             PlayerMode::Emby => !self.emby.token.is_empty(),
+            PlayerMode::Squeeze => !self.squeeze.url.is_empty(),
         }
     }
 
@@ -82,11 +84,16 @@ impl App {
     /// Shows the sign-in form, filled in with what's known, with `status`
     /// beside its button.
     pub(super) fn show_sign_in(&mut self, status: String) {
-        let (url, user) = match self.mode {
-            PlayerMode::Emby => (self.emby.url.clone(), self.emby.user.clone()),
-            PlayerMode::Local | PlayerMode::Squeeze => return,
+        let (url, user, password) = match self.mode {
+            PlayerMode::Emby => (self.emby.url.clone(), self.emby.user.clone(), String::new()),
+            PlayerMode::Squeeze => (self.squeeze.url.clone(), self.squeeze.user.clone(), self.squeeze.password.clone()),
+            PlayerMode::Local => return,
         };
-        for (field, text) in self.browser.form.iter_mut().zip([url, user, String::new()]) {
+        self.browser.form_hints = match self.mode {
+            PlayerMode::Squeeze => ["Server address (port 9000)", "User name, if it has one", "Password, if it has one"],
+            _ => ["Server address (port 8096)", "User name", "Password"],
+        };
+        for (field, text) in self.browser.form.iter_mut().zip([url, user, password]) {
             *field = TextField::default();
             field.insert(&text);
         }
@@ -94,15 +101,17 @@ impl App {
         self.pl.signing_in = true;
         self.set_tab(Tab::Browse);
         self.pl.scroll = 0;
-        // Typing starts in the first empty field.
+        // Typing starts in the first empty field. (A Logitech Media
+        // Server usually has no user name or password.)
         let empty = self.browser.form.iter().position(|f| f.text().is_empty());
-        self.browser.focus = Some(Field::Form(empty.unwrap_or(PASSWORD)));
+        let first = if self.mode == PlayerMode::Squeeze { Some(0) } else { empty };
+        self.browser.focus = Some(Field::Form(first.unwrap_or(PASSWORD)));
     }
 
     /// Signs in with what's in the form.
     pub(super) fn sign_in(&mut self) {
         let [url, user, password] = self.browser.form.clone().map(|f| f.text().trim().to_string());
-        if url.is_empty() || user.is_empty() {
+        if url.is_empty() || (user.is_empty() && self.mode == PlayerMode::Emby) {
             self.browser.form_status = "Fill in the address and user name".to_string();
             return;
         }
@@ -112,9 +121,10 @@ impl App {
                     self.emby.device_id = format!("{:016x}{:016x}", fastrand::u64(..), fastrand::u64(..));
                 }
                 let device_id = self.emby.device_id.clone();
-                ServerConfig::Emby(EmbyConfig { url: library::tidy_url(&url), user: user.clone(), device_id, ..EmbyConfig::default() })
+                ServerConfig::Emby(EmbyConfig { url: library::tidy_url(&url, 8096), user: user.clone(), device_id, ..EmbyConfig::default() })
             }
-            PlayerMode::Local | PlayerMode::Squeeze => return,
+            PlayerMode::Squeeze => ServerConfig::Squeeze(SqueezeConfig { url: library::tidy_url(&url, 9000), ..SqueezeConfig::default() }),
+            PlayerMode::Local => return,
         };
         let proxy = self.proxy.clone();
         let mut library = Library::connect(config, move || {
@@ -143,6 +153,7 @@ impl App {
                 (Wanted::SignIn, Ok(Reply::SignedIn(config))) => {
                     match config {
                         ServerConfig::Emby(config) => self.emby = config,
+                        ServerConfig::Squeeze(config) => self.squeeze = config,
                     }
                     self.browser = Browser::default();
                     self.connect_library();
@@ -177,19 +188,23 @@ impl App {
     /// server, with `title` to show if it has no tags. None if we're not
     /// signed in.
     pub(super) fn web_source(&self, location: &Location, title: &str) -> Option<Source> {
-        let url = match location {
-            Location::Emby(id) if !self.emby.token.is_empty() => emby::stream_url(&self.emby, id),
+        let (url, authorization) = match location {
+            Location::Emby(id) if !self.emby.token.is_empty() => (emby::stream_url(&self.emby, id), None),
+            Location::Squeeze(id) if !self.squeeze.url.is_empty() => {
+                (squeeze::stream_url(&self.squeeze, id), squeeze::authorization(&self.squeeze))
+            }
             _ => return None,
         };
-        Some(Source::Http { url, title: title.to_string() })
+        Some(Source::Http { url, authorization, title: title.to_string() })
     }
 
     /// A playlist entry's location for a track of the mode's library.
     fn track_location(&self, id: &str) -> Location {
         match self.mode {
             PlayerMode::Emby => Location::Emby(id.to_string()),
+            PlayerMode::Squeeze => Location::Squeeze(id.to_string()),
             // Local files have no library to browse.
-            PlayerMode::Local | PlayerMode::Squeeze => Location::File(id.into()),
+            PlayerMode::Local => Location::File(id.into()),
         }
     }
 

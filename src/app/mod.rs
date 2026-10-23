@@ -34,7 +34,7 @@ use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
 
 use crate::audio::{self, Opener, PlayState, Player};
-use crate::config::{self, Config, EmbyConfig, PlayerMode, WindowsConfig};
+use crate::config::{self, Config, EmbyConfig, PlayerMode, SqueezeConfig, WindowsConfig};
 use crate::library::Library;
 use crate::metadata::MetadataReader;
 use crate::playlist::Playlist;
@@ -331,6 +331,7 @@ pub struct App {
     /// The music server's library, in the playlist window.
     browser: Browser,
     emby: EmbyConfig,
+    squeeze: SqueezeConfig,
     /// Talks to the mode's music server; none for local files.
     library: Option<Library>,
     /// What each request to the library still waiting for an answer was for.
@@ -464,6 +465,7 @@ impl App {
             parked: std::collections::HashMap::new(),
             browser: Browser::default(),
             emby: config.emby.clone(),
+            squeeze: config.squeeze.clone(),
             library: None,
             library_jobs: std::collections::HashMap::new(),
             opener: {
@@ -550,6 +552,7 @@ impl App {
             milkdrop_open: self.milkdrop_open,
             player_mode: self.mode,
             emby: self.emby.clone(),
+            squeeze: self.squeeze.clone(),
             playlist_current: self.playlist_of(PlayerMode::Local).and_then(Playlist::current_index),
             equalizer: config::EqualizerConfig {
                 enabled: self.eq.enabled,

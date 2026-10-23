@@ -19,9 +19,10 @@ use crate::location::Location;
 #[derive(Clone)]
 pub enum Source {
     File(std::path::PathBuf),
-    /// A web address (never shown or saved: it may hold a token), and a
-    /// title to show if the track has no tags.
-    Http { url: String, title: String },
+    /// A web address (never shown or saved: it may hold a token), the
+    /// `Authorization` header to send with it if the server needs one, and
+    /// a title to show if the track has no tags.
+    Http { url: String, authorization: Option<String>, title: String },
 }
 
 /// File extensions offered in the open-file dialog.
@@ -96,8 +97,8 @@ impl Track {
                 let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
                 (Box::new(file), location.fallback_title())
             }
-            Source::Http { url, title } => {
-                let http = HttpSource::open(url).context("couldn't get the track from the server")?;
+            Source::Http { url, authorization, title } => {
+                let http = HttpSource::open(url, authorization.clone()).context("couldn't get the track from the server")?;
                 if let Some(mime) = http.content_type() {
                     hint.mime_type(mime);
                 }
@@ -313,7 +314,8 @@ mod tests {
         let path = temp_wav("web", 8000, 2, 8000 * 3);
         let url = super::super::http::serve(std::fs::read(&path).unwrap());
         let location = Location::File(PathBuf::from("from the web"));
-        let mut track = Track::open_source(&Source::Http { url, title: "Web Track".into() }, location).unwrap();
+        let source = Source::Http { url, authorization: None, title: "Web Track".into() };
+        let mut track = Track::open_source(&source, location).unwrap();
         assert_eq!(track.info.title, "Web Track");
         assert_eq!(track.info.duration, Some(3.0));
         let landed = track.seek(1.5).unwrap();

@@ -42,8 +42,6 @@ const TAB_WIDTH: i32 = 40;
 /// fields, one below another.
 const FIELD_HEIGHT: i32 = 13;
 const BUTTON_WIDTH: i32 = 44;
-/// Hints in the sign-in form's empty fields.
-const FORM_HINTS: [&str; FORM_FIELDS] = ["Server address", "User name", "Password"];
 
 /// What the list shows in a music server mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -584,7 +582,8 @@ pub fn draw_list_text(
                 let rect = field_box(width, field);
                 let focused = browser.focus == Some(Field::Form(field));
                 let clips = clips(rect.1 * s, rect.3 * s);
-                draw_field(canvas, font, style, &browser.form[field], FORM_HINTS[field], field == PASSWORD, focused, rect, s, &clips);
+                let hint = browser.form_hints[field];
+                draw_field(canvas, font, style, &browser.form[field], hint, field == PASSWORD, focused, rect, s, &clips);
             }
             // The button, and how signing in is going beside it.
             let (x, y, w, h) = field_box(width, FORM_FIELDS);

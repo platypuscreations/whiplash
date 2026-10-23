@@ -14,6 +14,8 @@ pub enum Location {
     File(PathBuf),
     /// A track in an Emby server's library, by its id there.
     Emby(String),
+    /// A track in a Logitech Media Server's library, by its id there.
+    Squeeze(String),
 }
 
 impl Location {
@@ -30,7 +32,7 @@ impl Location {
     pub fn fallback_title(&self) -> String {
         match self {
             Location::File(path) => path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
-            Location::Emby(_) => self.to_string(),
+            Location::Emby(_) | Location::Squeeze(_) => self.to_string(),
         }
     }
 
@@ -40,6 +42,7 @@ impl Location {
         match self {
             Location::File(path) => Some(path.file_name()?.to_string_lossy().into_owned()),
             Location::Emby(id) => Some(format!("emby:{id}")),
+            Location::Squeeze(id) => Some(format!("squeeze:{id}")),
         }
     }
 
@@ -47,7 +50,7 @@ impl Location {
     pub fn name_sort_key(&self) -> Option<String> {
         match self {
             Location::File(path) => path.file_name().map(|n| n.to_string_lossy().to_lowercase()),
-            Location::Emby(_) => None,
+            Location::Emby(_) | Location::Squeeze(_) => None,
         }
     }
 
@@ -55,7 +58,7 @@ impl Location {
     pub fn path_sort_key(&self) -> String {
         match self {
             Location::File(path) => path.to_string_lossy().to_lowercase(),
-            Location::Emby(id) => id.clone(),
+            Location::Emby(id) | Location::Squeeze(id) => id.clone(),
         }
     }
 
@@ -63,7 +66,7 @@ impl Location {
     pub fn exists(&self) -> bool {
         match self {
             Location::File(path) => path.exists(),
-            Location::Emby(_) => true,
+            Location::Emby(_) | Location::Squeeze(_) => true,
         }
     }
 }
@@ -79,6 +82,7 @@ impl std::fmt::Display for Location {
         match self {
             Location::File(path) => write!(f, "{}", path.display()),
             Location::Emby(id) => write!(f, "Emby track {id}"),
+            Location::Squeeze(id) => write!(f, "Logitech Media Server track {id}"),
         }
     }
 }

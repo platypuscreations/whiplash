@@ -45,6 +45,8 @@ fn total_from_content_range(header: &str) -> Option<u64> {
 pub struct HttpSource {
     agent: ureq::Agent,
     url: String,
+    /// The `Authorization` header, for a server that wants a password.
+    authorization: Option<String>,
     /// The file's size, if the server said.
     len: Option<u64>,
     /// The server can send part of the file, so jumps backward work.
@@ -58,14 +60,15 @@ pub struct HttpSource {
 }
 
 impl HttpSource {
-    /// Starts downloading from `url`. Fails if the server can't be reached
-    /// or won't send the file.
-    pub fn open(url: &str) -> io::Result<HttpSource> {
+    /// Starts downloading from `url`, sending `authorization` as the
+    /// `Authorization` header if given. Fails if the server can't be
+    /// reached or won't send the file.
+    pub fn open(url: &str, authorization: Option<String>) -> io::Result<HttpSource> {
         let agent = ureq::AgentBuilder::new()
             .timeout_connect(Duration::from_secs(5))
             .timeout_read(Duration::from_secs(15))
             .build();
-        let response = request(&agent, url, 0)?;
+        let response = request(&agent, url, authorization.as_deref(), 0)?;
         let length = response.header("Content-Length").and_then(|l| l.trim().parse().ok());
         let total = response.header("Content-Range").and_then(total_from_content_range);
         let seekable = response.status() == 206 && total.is_some();
@@ -73,6 +76,7 @@ impl HttpSource {
         Ok(HttpSource {
             agent,
             url: url.to_string(),
+            authorization,
             len: if seekable { total } else { length },
             seekable,
             content_type,
@@ -104,7 +108,7 @@ impl HttpSource {
             }
             Plan::Reconnect => {
                 self.body = None;
-                let response = request(&self.agent, &self.url, self.position)?;
+                let response = request(&self.agent, &self.url, self.authorization.as_deref(), self.position)?;
                 self.body = Some((self.position, response.into_reader()));
                 Ok(())
             }
@@ -122,13 +126,16 @@ impl HttpSource {
 
 /// Asks for the file from byte `from` on. The error never includes the
 /// address, which may hold a password or token.
-fn request(agent: &ureq::Agent, url: &str, from: u64) -> io::Result<ureq::Response> {
-    let result = agent
+fn request(agent: &ureq::Agent, url: &str, authorization: Option<&str>, from: u64) -> io::Result<ureq::Response> {
+    let mut request = agent
         .get(url)
         .set("Range", &format!("bytes={from}-"))
         // Compressed downloads would throw the byte counts off.
-        .set("Accept-Encoding", "identity")
-        .call();
+        .set("Accept-Encoding", "identity");
+    if let Some(authorization) = authorization {
+        request = request.set("Authorization", authorization);
+    }
+    let result = request.call();
     result.map_err(|err| match err {
         ureq::Error::Status(code, response) => {
             io::Error::other(format!("the server said {code} {}", response.status_text()))
@@ -247,7 +254,7 @@ mod tests {
     #[test]
     fn reads_and_jumps_around_a_download() {
         let bytes: Vec<u8> = (0..1_000_000u32).map(|i| (i % 251) as u8).collect();
-        let mut source = HttpSource::open(&serve(bytes.clone())).unwrap();
+        let mut source = HttpSource::open(&serve(bytes.clone()), None).unwrap();
         assert!(source.is_seekable());
         assert_eq!(source.byte_len(), Some(1_000_000));
         assert_eq!(source.content_type(), Some("audio/wav"));

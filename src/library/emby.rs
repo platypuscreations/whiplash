@@ -260,7 +260,7 @@ mod tests {
         });
         let mut emby = Emby::new(EmbyConfig { url, device_id: "d1".into(), ..EmbyConfig::default() });
         assert!(emby.list(&Request::Artists).unwrap_err().is::<SignedOut>());
-        let ServerConfig::Emby(config) = emby.sign_in("luke", "secret").unwrap();
+        let Ok(ServerConfig::Emby(config)) = emby.sign_in("luke", "secret") else { panic!("didn't sign in") };
         assert_eq!((config.user.as_str(), config.user_id.as_str(), config.token.as_str()), ("luke", "u1", "t1"));
         let tracks = emby.list(&Request::Tracks { album: "12".into() }).unwrap();
         assert_eq!(titles(&tracks), [("Radiohead - Airbag", "")]);
@@ -299,9 +299,9 @@ mod server_tests {
     fn browses_and_plays_from_a_real_server() {
         let account = std::env::var("WHIPLASH_TEST_EMBY").expect("set WHIPLASH_TEST_EMBY to \"url user password\"");
         let [url, user, password] = <[&str; 3]>::try_from(account.split_whitespace().collect::<Vec<_>>()).expect("url user password");
-        let config = EmbyConfig { url: super::super::tidy_url(url), device_id: "whiplash-test".into(), ..EmbyConfig::default() };
+        let config = EmbyConfig { url: super::super::tidy_url(url, 8096), device_id: "whiplash-test".into(), ..EmbyConfig::default() };
         let mut emby = Emby::new(config);
-        let ServerConfig::Emby(config) = emby.sign_in(user, password).unwrap();
+        let Ok(ServerConfig::Emby(config)) = emby.sign_in(user, password) else { panic!("didn't sign in") };
 
         let artists = emby.list(&Request::Artists).unwrap();
         println!("{} artists, starting with {:?}", artists.len(), artists.first().map(|a| &a.title));
@@ -313,7 +313,7 @@ mod server_tests {
         println!("searching for {:?}: {} results", artists[0].title, found.len());
 
         let track = &tracks[0];
-        let source = Source::Http { url: stream_url(&config, &track.id), title: track.title.clone() };
+        let source = Source::Http { url: stream_url(&config, &track.id), authorization: None, title: track.title.clone() };
         let mut opened = Track::open_source(&source, Location::Emby(track.id.clone())).unwrap();
         let info = opened.info.clone();
         println!("{}: {:?} s, {} Hz, {} channels, {:?} kbps", info.title, info.duration, info.sample_rate, info.channels, info.kbps);

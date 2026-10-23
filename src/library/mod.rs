@@ -1,18 +1,20 @@
 //! Music servers' libraries: what's in them, as the playlist window's
 //! browser shows it, and a helper thread that asks the server.
 //!
-//! Each server has its own module that speaks its language (`emby`). The
+//! Each server has its own module that speaks its language (`emby`,
+//! `squeeze`). The
 //! app hands jobs to a `Library`, whose thread does them one at a time and
 //! hands back the answers, so the windows never wait on the network.
 
 pub mod emby;
+pub mod squeeze;
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 use anyhow::Result;
 
-use crate::config::EmbyConfig;
+use crate::config::{EmbyConfig, SqueezeConfig};
 
 /// What a library entry is, which decides what opening it does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,6 +77,7 @@ pub fn top_level() -> Vec<Item> {
 #[derive(Clone)]
 pub enum ServerConfig {
     Emby(EmbyConfig),
+    Squeeze(SqueezeConfig),
 }
 
 /// What the helper thread is asked to do.
@@ -126,6 +129,7 @@ impl Library {
             .spawn(move || {
                 let mut server: Box<dyn Server> = match config {
                     ServerConfig::Emby(config) => Box::new(emby::Emby::new(config)),
+                    ServerConfig::Squeeze(config) => Box::new(squeeze::Squeeze::new(config)),
                 };
                 // Ends when the app drops its `Library`.
                 for (ticket, job) in incoming {
@@ -157,10 +161,16 @@ impl Library {
     }
 }
 
-/// An address as typed, tidied: "media:8096/" becomes "http://media:8096".
-pub fn tidy_url(url: &str) -> String {
+/// An address as typed, tidied: "media/" becomes "http://media:8096"
+/// given the server's usual port, 8096. A full address ("https://...") is
+/// left as it is, as it may lead through another web server.
+pub fn tidy_url(url: &str, port: u16) -> String {
     let url = url.trim().trim_end_matches('/');
-    if url.contains("://") { url.to_string() } else { format!("http://{url}") }
+    if url.contains("://") {
+        return url.to_string();
+    }
+    let (host, path) = url.split_once('/').map_or((url, String::new()), |(h, p)| (h, format!("/{p}")));
+    if host.contains(':') { format!("http://{url}") } else { format!("http://{host}:{port}{path}") }
 }
 
 /// Turns a failed request into an error that doesn't show the address
@@ -214,7 +224,9 @@ mod tests {
 
     #[test]
     fn addresses_are_tidied() {
-        assert_eq!(tidy_url(" media:8096/ "), "http://media:8096");
-        assert_eq!(tidy_url("https://media.example/emby"), "https://media.example/emby");
+        assert_eq!(tidy_url(" media:8096/ ", 8096), "http://media:8096");
+        assert_eq!(tidy_url("media", 9000), "http://media:9000");
+        assert_eq!(tidy_url("10.0.0.5:9001/", 9000), "http://10.0.0.5:9001");
+        assert_eq!(tidy_url("https://media.example/emby/", 8096), "https://media.example/emby");
     }
 }

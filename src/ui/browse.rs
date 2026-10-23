@@ -43,6 +43,8 @@ pub struct Browser {
     levels: Vec<Level>,
     pub search: TextField,
     pub form: [TextField; FORM_FIELDS],
+    /// Shown in the form's fields while they're empty.
+    pub form_hints: [&'static str; FORM_FIELDS],
     /// How signing in is going, shown beside the button.
     pub form_status: String,
     /// Where typing goes, if anywhere.
@@ -62,6 +64,7 @@ impl Default for Browser {
             levels: vec![top],
             search: TextField::default(),
             form: Default::default(),
+            form_hints: ["Server address", "User name", "Password"],
             form_status: String::new(),
             focus: None,
         }

@@ -115,7 +115,7 @@ impl Server for Squeeze {
                     found.truncate(SEARCH_LIMIT as usize);
                     found
                 };
-                let artists = limit(self.list_of("artists", &[search.clone()])?);
+                let artists = limit(self.list_of("artists", std::slice::from_ref(&search))?);
                 let albums = limit(self.list_of("albums", &[search.clone(), f("tags:la")])?);
                 let tracks = limit(self.list_of("titles", &[search, f("tags:ad")])?);
                 let mut items: Vec<Item> = artists.iter().map(|a| artist(a, "artist")).collect();

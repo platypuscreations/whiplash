@@ -90,7 +90,7 @@ impl Emby {
             request = request.query(name, value);
         }
         let response = request.call().map_err(request_error)?;
-        Ok(parse_items(response.into_reader())?)
+        parse_items(response.into_reader())
     }
 
     /// The user's library entries that match `query`.

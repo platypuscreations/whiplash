@@ -539,7 +539,7 @@ fn field_box(width: i32, index: usize) -> (i32, i32, i32, i32) {
 
 /// Halfway between two colors, for hints such as the empty search box's.
 fn mix(a: u32, b: u32) -> u32 {
-    let channel = |shift: u32| (((a >> shift) & 0xFF) + ((b >> shift) & 0xFF)) / 2 << shift;
+    let channel = |shift: u32| ((((a >> shift) & 0xFF) + ((b >> shift) & 0xFF)) / 2) << shift;
     channel(16) | channel(8) | channel(0)
 }
 

@@ -241,7 +241,7 @@ fn read_tags(format: &mut dyn FormatReader) -> Tags {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use std::path::PathBuf;
 
@@ -269,7 +269,7 @@ mod tests {
         std::fs::write(path, bytes).unwrap();
     }
 
-    fn temp_wav(name: &str, rate: u32, channels: u16, frames: u32) -> PathBuf {
+    pub(in crate::audio) fn temp_wav(name: &str, rate: u32, channels: u16, frames: u32) -> PathBuf {
         let path = std::env::temp_dir().join(format!("whiplash-test-{}-{name}.wav", std::process::id()));
         write_wav(&path, rate, channels, frames);
         path

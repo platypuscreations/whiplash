@@ -95,7 +95,7 @@ impl App {
         let previous = std::mem::replace(&mut self.playlist, playlist);
         self.parked.insert(self.mode, previous);
         self.mode = mode;
-        self.opening = None;
+        self.opener_job = None;
         self.browser = Browser::default();
         self.pl.tab = tab_for(mode);
         self.pl.scroll = 0;

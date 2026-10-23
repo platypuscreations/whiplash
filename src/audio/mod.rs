@@ -20,7 +20,7 @@ mod output;
 mod resample;
 
 pub use decode::{EXTENSIONS, Source, Track, TrackInfo};
-pub use opener::Opener;
+pub use opener::{Done, Opener};
 pub use equalizer::{BAND_HZ as EQ_BAND_HZ, MAX_DB as EQ_MAX_DB};
 
 use std::path::Path;
@@ -238,6 +238,10 @@ pub struct Player {
     settings: Arc<Settings>,
     playback: Option<Playback>,
     info: Option<TrackInfo>,
+    /// While a seek is done in the background (see `start_seek`): where
+    /// it's going. The track isn't playing meanwhile, but counts as playing
+    /// (or paused) from there.
+    seeking: Option<f64>,
 }
 
 impl Player {
@@ -252,6 +256,7 @@ impl Player {
             }),
             playback: None,
             info: None,
+            seeking: None,
         }
     }
 
@@ -276,7 +281,7 @@ impl Player {
 
     /// Toggles pause. Does nothing while stopped.
     pub fn pause(&mut self) {
-        if self.playback.is_some() {
+        if self.playback.is_some() || self.seeking.is_some() {
             self.settings.paused.fetch_xor(true, Relaxed);
         }
     }
@@ -285,6 +290,7 @@ impl Player {
         if let Some(playback) = self.playback.take() {
             playback.stop();
         }
+        self.seeking = None;
         self.settings.paused.store(false, Relaxed);
     }
 
@@ -304,17 +310,46 @@ impl Player {
         Ok(())
     }
 
+    /// The start of a seek done elsewhere (see `Opener::seek`), for a track
+    /// from the web, where seeking may wait on the server: stops playing
+    /// and hands over the track and where it had got to. `finish_seek`
+    /// carries on. Repeating this before then only changes the target, and
+    /// returns `None`.
+    pub fn start_seek(&mut self, seconds: f64) -> Option<(Track, f64)> {
+        if self.seeking.is_some() {
+            self.seeking = Some(seconds);
+            return None;
+        }
+        let playback = self.playback.take()?;
+        let current = playback.position();
+        let track = playback.stop()?;
+        self.seeking = Some(seconds);
+        Some((track, current))
+    }
+
+    /// Where the seek under way is going now, if one is.
+    pub fn seek_target(&self) -> Option<f64> {
+        self.seeking
+    }
+
+    /// Plays on from `landed`, after a seek done elsewhere.
+    pub fn finish_seek(&mut self, track: Track, landed: f64) -> Result<()> {
+        self.seeking = None;
+        self.playback = Some(Playback::start(track, landed, &self.settings)?);
+        Ok(())
+    }
+
     pub fn state(&self) -> PlayState {
-        match &self.playback {
-            None => PlayState::Stopped,
-            Some(_) if self.settings.paused.load(Relaxed) => PlayState::Paused,
-            Some(_) => PlayState::Playing,
+        match (&self.playback, self.seeking) {
+            (None, None) => PlayState::Stopped,
+            _ if self.settings.paused.load(Relaxed) => PlayState::Paused,
+            _ => PlayState::Playing,
         }
     }
 
     /// Seconds into the current track.
     pub fn position(&self) -> f64 {
-        self.playback.as_ref().map_or(0.0, Playback::position)
+        self.seeking.unwrap_or_else(|| self.playback.as_ref().map_or(0.0, Playback::position))
     }
 
     /// Copies the most recently played sound into `out` (mono, oldest
@@ -405,6 +440,13 @@ mod tests {
     }
 
     #[test]
+    fn seeking_while_stopped_does_nothing() {
+        let mut player = Player::new();
+        assert!(player.start_seek(5.0).is_none());
+        assert_eq!((player.state(), player.seek_target(), player.position()), (PlayState::Stopped, None, 0.0));
+    }
+
+    #[test]
     fn balance_turns_down_the_opposite_side() {
         let player = Player::new();
         player.set_volume(1.0);
@@ -427,6 +469,44 @@ mod tests {
 #[cfg(test)]
 mod device_tests {
     use super::*;
+    use crate::location::Location;
+
+    /// Seeks in a track from a (local) web server the way the app does,
+    /// in the background, including changing target mid-seek.
+    #[test]
+    #[ignore]
+    fn seeks_a_web_track_in_the_background() {
+        let path = decode::tests::temp_wav("web-seek", 44_100, 2, 44_100 * 20);
+        let url = http::serve(std::fs::read(&path).unwrap());
+        let (done, finished) = std::sync::mpsc::channel();
+        let opener = Opener::new(move || done.send(()).unwrap());
+        let wait = || {
+            finished.recv_timeout(Duration::from_secs(5)).expect("the opener didn't answer");
+            opener.results().next().unwrap()
+        };
+
+        let mut player = Player::new();
+        player.set_volume(0.0);
+        opener.open(1, Source::Http { url, authorization: None, title: "web".into() }, Location::Emby("1".into()));
+        let (_, Done::Opened(track)) = wait() else { panic!("expected an opened track") };
+        player.start(track.unwrap()).unwrap();
+        thread::sleep(Duration::from_millis(300));
+
+        let (track, current) = player.start_seek(5.0).unwrap();
+        assert!(player.start_seek(12.0).is_none(), "a second seek only moves the target");
+        assert_eq!((player.state(), player.position()), (PlayState::Playing, 12.0));
+        opener.seek(2, track, 5.0, current);
+        let (_, Done::Seeked { track, target, landed }) = wait() else { panic!("expected a seek") };
+        assert_eq!((target, player.seek_target()), (5.0, Some(12.0)));
+        opener.seek(3, track, 12.0, landed);
+        let (_, Done::Seeked { track, landed, .. }) = wait() else { panic!("expected a seek") };
+        player.finish_seek(track, landed).unwrap();
+        thread::sleep(Duration::from_millis(300));
+        assert!((12.2..12.6).contains(&player.position()), "played on from {}", player.position());
+        player.stop();
+        assert_eq!(player.state(), PlayState::Stopped);
+        std::fs::remove_file(path).ok();
+    }
 
     #[test]
     #[ignore]

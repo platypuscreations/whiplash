@@ -33,7 +33,7 @@ use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
 
-use crate::audio::{self, Opener, PlayState, Player};
+use crate::audio::{self, Done, Opener, PlayState, Player};
 use crate::config::{self, Config, EmbyConfig, PlayerMode, SqueezeConfig, WindowsConfig};
 use crate::library::Library;
 use crate::metadata::MetadataReader;
@@ -83,8 +83,8 @@ pub enum UserEvent {
     Media(media::Command),
     /// The music server has answered.
     Library,
-    /// A track from the web has opened, or failed to.
-    TrackOpened,
+    /// A track from the web has opened (or failed to), or seeked.
+    Opener,
 }
 
 /// Which of the app's windows something refers to.
@@ -338,9 +338,9 @@ pub struct App {
     library_jobs: std::collections::HashMap<u64, browse::Wanted>,
     /// Opens tracks from the web without holding up the windows.
     opener: Opener,
-    /// The track being opened by `opener`, by the ticket it was given;
-    /// tickets count up from `last_ticket`.
-    opening: Option<u64>,
+    /// The job given to `opener` that's still wanted (opening or seeking
+    /// in a track), by its ticket; tickets count up from `last_ticket`.
+    opener_job: Option<u64>,
     last_ticket: u64,
     metadata: MetadataReader,
     visualizer: Visualizer,
@@ -471,10 +471,10 @@ impl App {
             opener: {
                 let proxy = proxy.clone();
                 Opener::new(move || {
-                    let _ = proxy.send_event(UserEvent::TrackOpened);
+                    let _ = proxy.send_event(UserEvent::Opener);
                 })
             },
-            opening: None,
+            opener_job: None,
             last_ticket: 0,
             metadata: {
                 let proxy = proxy.clone();
@@ -583,10 +583,10 @@ impl App {
 
     /// Plays the playlist's current track. A file starts at once; a track
     /// from the web is opened in the background, and starts once it has
-    /// (see `track_opened`).
+    /// (see `opener_done`).
     fn play_current(&mut self) {
         let Some(entry) = self.playlist.current_index().map(|i| self.playlist.entries()[i].clone()) else { return };
-        self.opening = None;
+        self.opener_job = None;
         if let Some(path) = entry.location.file() {
             match self.player.open(path) {
                 Ok(()) => self.track_started(),
@@ -595,7 +595,7 @@ impl App {
         } else if let Some(source) = self.web_source(&entry.location, &entry.title) {
             self.player.clear();
             self.last_ticket += 1;
-            self.opening = Some(self.last_ticket);
+            self.opener_job = Some(self.last_ticket);
             self.opener.open(self.last_ticket, source, entry.location);
             self.show_message(format!("opening: {}", entry.title));
         } else {
@@ -605,20 +605,55 @@ impl App {
         self.redraw(Kind::Playlist);
     }
 
-    /// Starts the track opened in the background, if it's still wanted.
-    fn track_opened(&mut self) {
-        let opened: Vec<_> = self.opener.results().collect();
-        for (ticket, result) in opened {
-            if self.opening != Some(ticket) {
+    /// Plays on once a track from the web has opened or seeked in the
+    /// background, if that's still wanted.
+    fn opener_done(&mut self) {
+        let finished: Vec<_> = self.opener.results().collect();
+        for (ticket, done) in finished {
+            if self.opener_job != Some(ticket) {
                 continue; // something else was chosen meanwhile
             }
-            self.opening = None;
-            self.message = None;
+            self.opener_job = None;
             let title = self.playlist.current_index().map(|i| self.playlist.entries()[i].title.clone()).unwrap_or_default();
-            match result.and_then(|track| self.player.start(track)) {
-                Ok(()) => self.track_started(),
-                Err(err) => self.show_error(format!("{title}: {err:#}")),
+            match done {
+                Done::Opened(result) => {
+                    self.message = None;
+                    match result.and_then(|track| self.player.start(track)) {
+                        Ok(()) => self.track_started(),
+                        Err(err) => self.show_error(format!("{title}: {err:#}")),
+                    }
+                }
+                // Asked to go somewhere else meanwhile: go on there.
+                Done::Seeked { track, target, landed } => match self.player.seek_target() {
+                    Some(newer) if newer != target => {
+                        self.last_ticket += 1;
+                        self.opener_job = Some(self.last_ticket);
+                        self.opener.seek(self.last_ticket, track, newer, landed);
+                    }
+                    Some(_) => {
+                        if let Err(err) = self.player.finish_seek(track, landed) {
+                            self.show_error(format!("{title}: {err:#}"));
+                        }
+                    }
+                    None => {}
+                },
             }
+        }
+    }
+
+    /// Jumps to `seconds` into the track. In a track from the web that can
+    /// wait on the server, so it's done in the background (see
+    /// `opener_done`).
+    fn seek(&mut self, seconds: f64) {
+        let from_web = self.player.info().is_some_and(|info| info.location.file().is_none());
+        if !from_web {
+            if let Err(err) = self.player.seek(seconds) {
+                self.show_message(format!("{err:#}"));
+            }
+        } else if let Some((track, current)) = self.player.start_seek(seconds) {
+            self.last_ticket += 1;
+            self.opener_job = Some(self.last_ticket);
+            self.opener.seek(self.last_ticket, track, seconds, current);
         }
     }
 
@@ -637,7 +672,7 @@ impl App {
 
     /// Stops playing, and opening a track to play.
     fn stop(&mut self) {
-        self.opening = None;
+        self.opener_job = None;
         self.player.stop();
     }
 
@@ -711,9 +746,7 @@ impl App {
     fn seek_by(&mut self, seconds: f64) {
         if self.player.state() != PlayState::Stopped {
             let target = self.player.position() + seconds;
-            if let Err(err) = self.player.seek(target.max(0.0)) {
-                self.show_message(format!("{err:#}"));
-            }
+            self.seek(target.max(0.0));
         }
     }
 
@@ -990,10 +1023,7 @@ impl App {
         if self.state.dragging.take() == Some(Slider::Position)
             && let Some(duration) = self.player.info().and_then(|i| i.duration)
         {
-            let target = self.state.position as f64 * duration;
-            if let Err(err) = self.player.seek(target) {
-                self.show_message(format!("{err:#}"));
-            }
+            self.seek(self.state.position as f64 * duration);
         }
     }
 
@@ -1272,8 +1302,8 @@ impl ApplicationHandler<UserEvent> for App {
                 self.library_replies();
                 self.redraw_all();
             }
-            UserEvent::TrackOpened => {
-                self.track_opened();
+            UserEvent::Opener => {
+                self.opener_done();
                 self.redraw_all();
             }
             UserEvent::Metadata => {

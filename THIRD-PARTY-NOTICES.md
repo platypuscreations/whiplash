@@ -83,6 +83,7 @@ its source, available from https://crates.io.
 | android-activity | 0.6.1 | MIT OR Apache-2.0 |
 | android-properties | 0.2.2 | MIT |
 | anyhow | 1.0.104 | MIT OR Apache-2.0 |
+| arboard | 3.7.0 | MIT OR Apache-2.0 |
 | arrayref | 0.3.9 | BSD-2-Clause |
 | arrayvec | 0.7.8 | MIT OR Apache-2.0 |
 | as-raw-xcb-connection | 1.0.1 | MIT OR Apache-2.0 |
@@ -114,6 +115,7 @@ its source, available from https://crates.io.
 | calloop-wayland-source | 0.3.0 | MIT |
 | cfg-if | 1.0.5 | MIT OR Apache-2.0 |
 | cgl | 0.3.2 | MIT / Apache-2.0 |
+| clipboard-win | 5.4.1 | BSL-1.0 |
 | combine | 4.6.9 | MIT |
 | concurrent-queue | 2.5.0 | Apache-2.0 OR MIT |
 | core-foundation | 0.9.4 | MIT OR Apache-2.0 |
@@ -146,6 +148,7 @@ its source, available from https://crates.io.
 | enumflags2_derive | 0.7.12 | MIT OR Apache-2.0 |
 | equivalent | 1.0.3 | Apache-2.0 OR MIT |
 | errno | 0.3.14 | MIT OR Apache-2.0 |
+| error-code | 3.4.0 | BSL-1.0 |
 | event-listener | 5.4.2 | Apache-2.0 OR MIT |
 | event-listener-strategy | 0.5.4 | Apache-2.0 OR MIT |
 | extended | 0.1.0 | MIT |
@@ -203,6 +206,7 @@ its source, available from https://crates.io.
 | linux-raw-sys | 0.4.15 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | linux-raw-sys | 0.9.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | litemap | 0.8.1 | Unicode-3.0 |
+| lock_api | 0.4.14 | MIT OR Apache-2.0 |
 | log | 0.4.34 | MIT OR Apache-2.0 |
 | mach2 | 0.6.0 | BSD-2-Clause OR MIT OR Apache-2.0 |
 | memchr | 2.8.3 | Unlicense OR MIT |
@@ -245,6 +249,8 @@ its source, available from https://crates.io.
 | ordered-stream | 0.2.0 | MIT OR Apache-2.0 |
 | owned_ttf_parser | 0.25.1 | Apache-2.0 |
 | parking | 2.2.1 | Apache-2.0 OR MIT |
+| parking_lot | 0.12.5 | MIT OR Apache-2.0 |
+| parking_lot_core | 0.9.12 | MIT OR Apache-2.0 |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 |
 | pin-project | 1.1.13 | Apache-2.0 OR MIT |
 | pin-project-internal | 1.1.13 | Apache-2.0 OR MIT |
@@ -287,6 +293,7 @@ its source, available from https://crates.io.
 | rustls-webpki | 0.103.8 | ISC |
 | rustversion | 1.0.23 | MIT OR Apache-2.0 |
 | scoped-tls | 1.0.1 | MIT/Apache-2.0 |
+| scopeguard | 1.2.0 | MIT OR Apache-2.0 |
 | sctk-adwaita | 0.10.1 | MIT |
 | serde | 1.0.229 | MIT OR Apache-2.0 |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 |

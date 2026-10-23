@@ -30,6 +30,8 @@ assets = [
 
 [dependencies]
 anyhow = "1.0.104"
+# Pasting into the search box and the sign-in form.
+arboard = { version = "3.7.0", default-features = false }
 base64 = "0.22.1"
 cpal = "0.18.2"
 ctrlc = "3.5.2"

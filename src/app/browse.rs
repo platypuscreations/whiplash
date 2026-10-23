@@ -317,8 +317,8 @@ impl App {
     // ----- Keys -----
 
     /// Keys while typing in the search box or the sign-in form. `text` is
-    /// what the key types. Returns false for keys left to the usual
-    /// shortcuts.
+    /// what the key types; Ctrl+V (Cmd+V) pastes. Returns false for keys
+    /// left to the usual shortcuts.
     pub(super) fn field_key_pressed(&mut self, key: &Key, text: Option<&str>) -> bool {
         let Some(focus) = self.browser.focus else { return false };
         let command = self.command_key();
@@ -344,6 +344,7 @@ impl App {
             (Key::Named(NamedKey::Home | NamedKey::ArrowUp), _) => field.home(),
             (Key::Named(NamedKey::End | NamedKey::ArrowDown), _) => field.end(),
             (Key::Named(NamedKey::Tab), _) => {}
+            (Key::Character(c), _) if command && c.eq_ignore_ascii_case("v") => field.insert(&clipboard_line()),
             _ if command => return false,
             _ => match text.filter(|t| !t.chars().all(char::is_control)) {
                 Some(typed) => field.insert(typed),
@@ -387,4 +388,10 @@ impl App {
         }
         true
     }
+}
+
+/// The first line of text on the clipboard, trimmed; empty if there's none.
+fn clipboard_line() -> String {
+    let text = arboard::Clipboard::new().and_then(|mut clipboard| clipboard.get_text()).unwrap_or_default();
+    text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default().to_string()
 }

@@ -201,6 +201,7 @@ To change these later, choose **Server settings...** from the main menu.
 | Double-click a track, Enter | Play the list it's in, starting with that track (replaces the playlist) |
 | Select, then ADD | Add the track, album or artist's tracks to the playlist |
 | Click the search box, Ctrl+F (Cmd+F) | Search; Enter searches, Esc clears |
+| Ctrl+V (Cmd+V) in the search box or sign-in form | Paste |
 
 Tracks play through Whiplash itself, so the equalizer, visualizers and MilkDrop work just as with files. Whiplash streams the original files, so the server doesn't convert them; very large files (such as high-resolution FLAC) need a network that can keep up.
 

@@ -12,7 +12,7 @@ use crate::ui::canvas::Canvas;
 use crate::ui::eq_window::{self, EqState};
 use crate::ui::main_window::{self, MainState, PlayState};
 use crate::library::{Item, ItemKind};
-use crate::ui::browse::Browser;
+use crate::ui::browse::{Browser, Field};
 use crate::ui::playlist_window::{self, MenuButton, PlaylistView, Tab};
 use crate::ui::text::Font;
 use crate::vis::{Mode, Visualizer};
@@ -89,10 +89,9 @@ pub fn render(skin: &Skin, out: &Path, scale: u32) -> Result<()> {
     // A music server mode: browsing an artist's albums, and the playlist
     // with a search being typed.
     let mut browser = Browser::default();
-    browser.open("Artists".into(), 0);
-    browser.open("Whiplash".into(), 0);
+    browser.open("Artists".into(), 0, None);
+    browser.open("Whiplash".into(), 0, None);
     let level = browser.level_mut();
-    level.loading = false;
     level.selected = Some(1);
     for (i, (name, year)) in [("Night Drive", "2019"), ("Neon Rain", "2021"), ("Afterglow", "2024")].into_iter().enumerate() {
         level.items.push(Item { kind: ItemKind::Album, id: i.to_string(), title: name.into(), detail: year.into(), duration: None });
@@ -100,16 +99,15 @@ pub fn render(skin: &Skin, out: &Path, scale: u32) -> Result<()> {
     let view = PlaylistView { focused: true, tab: Some(Tab::Browse), ..PlaylistView::default() };
     pieces.push((playlist_window(skin, &view, &playlist, &browser, &playing, scale), left, y));
     browser.search.insert("neon");
-    browser.searching = true;
+    browser.focus = Some(Field::Search);
     let queue = PlaylistView { tab: Some(Tab::Queue), ..view };
     pieces.push((playlist_window(skin, &queue, &playlist, &browser, &playing, scale), right, y));
     let view = PlaylistView { tab: Some(Tab::Browse), ..view };
     y += view.height + GAP;
     // Search results, with another search being typed.
     let mut searched = Browser::default();
-    searched.open("Search: neon".into(), 0);
+    searched.open("Search: neon".into(), 0, None);
     let level = searched.level_mut();
-    level.loading = false;
     let found = [
         (ItemKind::Artist, "Neon Lights", "artist", None),
         (ItemKind::Album, "Neon Rain", "album", None),
@@ -119,8 +117,16 @@ pub fn render(skin: &Skin, out: &Path, scale: u32) -> Result<()> {
         level.items.push(Item { kind, id: i.to_string(), title: title.into(), detail: detail.into(), duration });
     }
     searched.search.insert("neon rai");
-    searched.searching = true;
+    searched.focus = Some(Field::Search);
     pieces.push((playlist_window(skin, &view, &playlist, &searched, &paused, scale), left, y));
+    let mut signing_in = Browser::default();
+    for (field, text) in signing_in.form.iter_mut().zip(["http://media:8096", "luke", "secret"]) {
+        field.insert(text);
+    }
+    signing_in.focus = Some(Field::Form(2));
+    signing_in.form_status = "Signing in...".into();
+    let form = PlaylistView { signing_in: true, ..view };
+    pieces.push((playlist_window(skin, &form, &playlist, &signing_in, &paused, scale), right, y));
     y += view.height + GAP;
 
     // Shade mode strips, focused and not.

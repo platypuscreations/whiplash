@@ -14,10 +14,13 @@
 
 mod decode;
 mod equalizer;
+mod http;
+mod opener;
 mod output;
 mod resample;
 
-pub use decode::{EXTENSIONS, TrackInfo};
+pub use decode::{EXTENSIONS, Source, Track, TrackInfo};
+pub use opener::Opener;
 pub use equalizer::{BAND_HZ as EQ_BAND_HZ, MAX_DB as EQ_MAX_DB};
 
 use std::path::Path;
@@ -31,12 +34,13 @@ use anyhow::{Context, Result};
 use ringbuf::traits::{Producer, Split};
 use ringbuf::{HeapProd, HeapRb};
 
-use decode::Track;
 use equalizer::EqShared;
 use resample::Resampler;
 
-/// How much decoded audio is kept ready ahead of the sound card.
+/// How much decoded audio is kept ready ahead of the sound card: more
+/// for a track from the web, to ride out a slow moment on the network.
 const BUFFER_SECONDS: f64 = 0.2;
+const WEB_BUFFER_SECONDS: f64 = 2.0;
 
 /// Opening the sound device can fail for a moment while the system
 /// rearranges its devices (a monitor with speakers was unplugged, say), so
@@ -145,7 +149,8 @@ impl Playback {
     fn start(track: Track, start: f64, settings: &Arc<Settings>) -> Result<Playback> {
         let shared = Arc::new(PlaybackShared::default());
         let rate = track.info.sample_rate;
-        let capacity = ((rate as f64 * BUFFER_SECONDS) as usize * 2).max(4096);
+        let seconds = if track.info.location.file().is_some() { BUFFER_SECONDS } else { WEB_BUFFER_SECONDS };
+        let capacity = ((rate as f64 * seconds) as usize * 2).max(4096);
         let mut attempt = 1;
         let (output, producer) = loop {
             let (producer, consumer) = HeapRb::<f32>::new(capacity).split();
@@ -253,22 +258,20 @@ impl Player {
     /// Opens a file and starts playing it from the beginning.
     pub fn open(&mut self, path: &Path) -> Result<()> {
         self.stop();
-        let track = Track::open(path)?;
+        self.start(Track::open(path)?)
+    }
+
+    /// Starts playing an open track (see `Opener`) from the beginning.
+    pub fn start(&mut self, track: Track) -> Result<()> {
+        self.stop();
         self.info = Some(track.info.clone());
         self.playback = Some(Playback::start(track, 0.0, &self.settings)?);
         Ok(())
     }
 
-    /// Resumes if paused, otherwise (re)starts the current track.
-    pub fn play(&mut self) -> Result<()> {
-        if self.state() == PlayState::Paused {
-            self.settings.paused.store(false, Relaxed);
-            return Ok(());
-        }
-        match self.info.as_ref().and_then(|info| info.location.file()).map(Path::to_path_buf) {
-            Some(path) => self.open(&path),
-            None => Ok(()),
-        }
+    /// Resumes if paused.
+    pub fn resume(&mut self) {
+        self.settings.paused.store(false, Relaxed);
     }
 
     /// Toggles pause. Does nothing while stopped.

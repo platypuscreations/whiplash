@@ -1,7 +1,7 @@
 //! The library browser, shown in the playlist window in a music server
-//! mode: the lists opened so far, from the top level down, and the search
-//! box. Like `Playlist` for tracks, this is just the state; the playlist
-//! window draws it.
+//! mode: the lists opened so far, from the top level down, the search box,
+//! and the form for signing in to the server. Like `Playlist` for tracks,
+//! this is just the state; the playlist window draws it.
 
 use super::text_field::TextField;
 use crate::library::{self, Item};
@@ -13,9 +13,21 @@ pub struct Level {
     pub selected: Option<usize>,
     /// The first row shown, while another list is.
     pub scroll: usize,
-    /// Still waiting for the library.
-    pub loading: bool,
+    /// The library request it's waiting for, if any.
+    pub pending: Option<u64>,
 }
+
+/// Where typing goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Field {
+    Search,
+    /// The sign-in form's fields: address, user name and password.
+    Form(usize),
+}
+
+/// The sign-in form's fields, in order.
+pub const FORM_FIELDS: usize = 3;
+pub const PASSWORD: usize = 2;
 
 /// What a row of the browser shows.
 #[derive(Debug, PartialEq)]
@@ -30,8 +42,11 @@ pub struct Browser {
     /// From the top level down to the list shown.
     levels: Vec<Level>,
     pub search: TextField,
-    /// Typing goes into the search box.
-    pub searching: bool,
+    pub form: [TextField; FORM_FIELDS],
+    /// How signing in is going, shown beside the button.
+    pub form_status: String,
+    /// Where typing goes, if anywhere.
+    pub focus: Option<Field>,
 }
 
 impl Default for Browser {
@@ -41,9 +56,15 @@ impl Default for Browser {
             items: library::top_level(),
             selected: None,
             scroll: 0,
-            loading: false,
+            pending: None,
         };
-        Browser { levels: vec![top], search: TextField::default(), searching: false }
+        Browser {
+            levels: vec![top],
+            search: TextField::default(),
+            form: Default::default(),
+            form_status: String::new(),
+            focus: None,
+        }
     }
 }
 
@@ -84,11 +105,11 @@ impl Browser {
     }
 
     /// Opens a new list below the one shown, to be filled in when the
-    /// library answers. `scroll` is the shown list's position, kept for
-    /// coming back to it.
-    pub fn open(&mut self, title: String, scroll: usize) {
+    /// library answers request `pending`. `scroll` is the shown list's
+    /// position, kept for coming back to it.
+    pub fn open(&mut self, title: String, scroll: usize, pending: Option<u64>) {
         self.level_mut().scroll = scroll;
-        self.levels.push(Level { title, items: Vec::new(), selected: None, scroll: 0, loading: true });
+        self.levels.push(Level { title, items: Vec::new(), selected: None, scroll: 0, pending });
     }
 
     /// Goes back up to the list above. Returns false at the top level.
@@ -117,14 +138,14 @@ mod tests {
         assert!(matches!(browser.row(0), Some(Row::Item(0, item)) if item.title == "Artists"));
         assert!(!browser.back());
 
-        browser.open("Artists".into(), 0);
-        assert!(browser.level().loading);
+        browser.open("Artists".into(), 0, Some(1));
+        assert_eq!(browser.level().pending, Some(1));
         assert_eq!(browser.rows(), 1);
         assert_eq!(browser.row(0), Some(Row::Back));
         assert_eq!(browser.row(1), None);
 
         browser.level_mut().items = vec![Item::folder("A", "a"), Item::folder("B", "b")];
-        browser.open("B".into(), 1);
+        browser.open("B".into(), 1, None);
         assert_eq!(browser.path(), "Artists › B");
         assert!(browser.back());
         assert_eq!(browser.level().scroll, 1);

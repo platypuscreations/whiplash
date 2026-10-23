@@ -74,13 +74,18 @@ impl App {
     /// The main menu: from the "O" buttons or a right-click.
     pub(super) fn open_options_menu(&mut self, event_loop: &ActiveEventLoop, over: Kind) {
         let mode = self.visualizer.mode;
-        let items = vec![
+        let mut items = vec![
             Item::new("Play file(s)...", Action::PlayFiles).shortcut("L"),
             Item::new("Play folder...", Action::PlayFolder),
             Item::separator(),
             Item::new("Local files", Action::PlayerMode(PlayerMode::Local)).checked(self.mode == PlayerMode::Local),
             Item::new("Emby", Action::PlayerMode(PlayerMode::Emby)).checked(self.mode == PlayerMode::Emby),
             Item::new("Squeeze", Action::PlayerMode(PlayerMode::Squeeze)).checked(self.mode == PlayerMode::Squeeze),
+        ];
+        if self.mode != PlayerMode::Local {
+            items.push(Item::new("Server settings...", Action::ServerSettings));
+        }
+        items.extend([
             Item::separator(),
             Item::new("Skin browser...", Action::SkinBrowser).shortcut("Alt+S"),
             Item::separator(),
@@ -101,7 +106,7 @@ impl App {
             Item::new("About Whiplash Player...", Action::About),
             Item::separator(),
             Item::new("Exit", Action::Exit),
-        ];
+        ]);
         self.open_menu(event_loop, over, items);
     }
 
@@ -204,6 +209,10 @@ impl App {
             Action::PlayFiles => self.open_dialog(Purpose::PlayFiles),
             Action::PlayFolder => self.open_dialog(Purpose::PlayFolder),
             Action::PlayerMode(mode) => self.set_player_mode(mode),
+            Action::ServerSettings => {
+                self.set_playlist_open(true);
+                self.show_sign_in(String::new());
+            }
             Action::SkinBrowser => self.open_skin_browser(event_loop, Kind::Main),
             Action::ToggleEqualizer => self.set_equalizer_open(!self.state.equalizer_open),
             Action::TogglePlaylist => self.set_playlist_open(!self.state.playlist_open),
@@ -287,8 +296,13 @@ impl App {
         let index = self.playlist.first_selected().or(self.playlist.current_index());
         let Some(entry) = index.map(|i| &self.playlist.entries()[i]) else { return };
         let mut text = format!("{}\n\n{}", entry.title, entry.location);
-        let Some(path) = entry.location.file() else { return dialogs::message_box("File info", text) };
-        match audio::read_info(path) {
+        // A track from a server is only looked at while it plays.
+        let info = match (entry.location.file(), self.player.info()) {
+            (Some(path), _) => audio::read_info(path),
+            (None, Some(info)) if info.location == entry.location => Ok(info.clone()),
+            (None, _) => return dialogs::message_box("File info", text),
+        };
+        match info {
             Ok(info) => {
                 let length = info.duration.map_or("unknown".into(), |d| {
                     crate::ui::playlist_window::format_duration(d.round() as u64)

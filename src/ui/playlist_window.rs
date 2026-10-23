@@ -9,7 +9,8 @@
 //! the playlist and a browser for the server's library. The frame stays
 //! the same.
 
-use super::browse::{Browser, Row};
+use super::browse::{Browser, FORM_FIELDS, Field, PASSWORD, Row};
+use super::text_field::TextField;
 use super::canvas::Canvas;
 use super::main_window::{MainState, PlayState};
 use super::text::Font;
@@ -37,8 +38,12 @@ const SCROLL_HANDLE_HEIGHT: i32 = 18;
 /// The tabs, in a music server mode.
 const TAB_HEIGHT: i32 = 12;
 const TAB_WIDTH: i32 = 40;
-/// The search box, below the tabs while browsing.
-const SEARCH_HEIGHT: i32 = 13;
+/// The search box, below the tabs while browsing, and the sign-in form's
+/// fields, one below another.
+const FIELD_HEIGHT: i32 = 13;
+const BUTTON_WIDTH: i32 = 44;
+/// Hints in the sign-in form's empty fields.
+const FORM_HINTS: [&str; FORM_FIELDS] = ["Server address", "User name", "Password"];
 
 /// What the list shows in a music server mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,6 +170,9 @@ pub struct PlaylistView {
     pub tab: Option<Tab>,
     /// The playlist's scroll position while the library shows.
     pub queue_scroll: usize,
+    /// The Browse tab shows the form for signing in to the server, rather
+    /// than the library.
+    pub signing_in: bool,
     pub focused: bool,
     pub pressed: Option<PlControl>,
     pub open_menu: Option<MenuButton>,
@@ -182,6 +190,7 @@ impl Default for PlaylistView {
             scroll: 0,
             tab: None,
             queue_scroll: 0,
+            signing_in: false,
             focused: false,
             pressed: None,
             open_menu: None,
@@ -207,7 +216,7 @@ impl PlaylistView {
             + match self.tab {
                 None => 0,
                 Some(Tab::Queue) => TAB_HEIGHT,
-                Some(Tab::Browse) => TAB_HEIGHT + SEARCH_HEIGHT,
+                Some(Tab::Browse) => TAB_HEIGHT + FIELD_HEIGHT,
             }
     }
 
@@ -286,6 +295,8 @@ pub enum Hit {
     BelowTracks,
     Tab(Tab),
     SearchBox,
+    FormField(usize),
+    SignInButton,
     ScrollBar,
     Resize,
     TitleBar,
@@ -294,7 +305,11 @@ pub enum Hit {
 
 /// How many rows the list shown has: tracks, or the browser's rows.
 pub fn rows(view: &PlaylistView, playlist: &Playlist, browser: &Browser) -> usize {
-    if view.tab == Some(Tab::Browse) { browser.rows() } else { playlist.len() }
+    match view.tab {
+        Some(Tab::Browse) if view.signing_in => 0,
+        Some(Tab::Browse) => browser.rows(),
+        _ => playlist.len(),
+    }
 }
 
 /// What's at (x, y). `row_count` is how many rows the list has (see `rows`).
@@ -358,7 +373,16 @@ pub fn hit_test(view: &PlaylistView, row_count: usize, x: i32, y: i32) -> Hit {
                 let column = (x - LEFT) / TAB_WIDTH;
                 return Tab::ALL.get(column as usize).map_or(Hit::Nothing, |&tab| Hit::Tab(tab));
             }
-            if tab == Tab::Browse && y < TOP + TAB_HEIGHT + SEARCH_HEIGHT {
+            if tab == Tab::Browse && view.signing_in {
+                for field in 0..=FORM_FIELDS {
+                    let (fx, fy, fw, fh) = field_box(width, field);
+                    if inside(fx, fy, fw, fh) {
+                        return if field < FORM_FIELDS { Hit::FormField(field) } else { Hit::SignInButton };
+                    }
+                }
+                return Hit::Nothing;
+            }
+            if tab == Tab::Browse && y < TOP + TAB_HEIGHT + FIELD_HEIGHT {
                 return Hit::SearchBox;
             }
         }
@@ -452,13 +476,24 @@ fn draw_list_backgrounds(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, 
         let column = Tab::ALL.iter().position(|&t| t == tab).unwrap_or(0) as i32;
         canvas.fill_rect(left + column * TAB_WIDTH, TOP, TAB_WIDTH as u32, TAB_HEIGHT as u32, style.selected_bg);
         canvas.fill_rect(left, TOP + TAB_HEIGHT - 1, (right - left) as u32, 1, style.selected_bg);
-        if tab == Tab::Browse {
-            let color = if browser.searching { style.normal } else { mix(style.normal, style.normal_bg) };
-            let (x, y, w, h) = search_box(width);
+        // Text boxes are outlined, brighter while typing in them.
+        let outline = |canvas: &mut Canvas, (x, y, w, h): (i32, i32, i32, i32), focused: bool| {
+            let color = if focused { style.normal } else { mix(style.normal, style.normal_bg) };
             canvas.fill_rect(x, y, w as u32, 1, color);
             canvas.fill_rect(x, y + h - 1, w as u32, 1, color);
             canvas.fill_rect(x, y, 1, h as u32, color);
             canvas.fill_rect(x + w - 1, y, 1, h as u32, color);
+        };
+        if tab == Tab::Browse && view.signing_in {
+            for field in 0..FORM_FIELDS {
+                outline(canvas, field_box(width, field), browser.focus == Some(Field::Form(field)));
+            }
+            let (x, y, w, h) = field_box(width, FORM_FIELDS);
+            canvas.fill_rect(x, y, w as u32, h as u32, style.selected_bg);
+            return;
+        }
+        if tab == Tab::Browse {
+            outline(canvas, field_box(width, 0), browser.focus == Some(Field::Search));
         }
     }
 
@@ -481,9 +516,13 @@ fn draw_list_backgrounds(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, 
     }
 }
 
-/// The search box's outline: left, top, width and height.
-fn search_box(width: i32) -> (i32, i32, i32, i32) {
-    (LEFT + 2, TOP + TAB_HEIGHT + 1, width - LEFT - RIGHT - 4, SEARCH_HEIGHT - 1)
+/// A text box's outline below the tabs: left, top, width and height. Box
+/// 0 is the search box, or the sign-in form's first field; the box after
+/// the form's fields is its button.
+fn field_box(width: i32, index: usize) -> (i32, i32, i32, i32) {
+    let top = TOP + TAB_HEIGHT + 1 + index as i32 * FIELD_HEIGHT;
+    let w = if index == FORM_FIELDS { BUTTON_WIDTH } else { width - LEFT - RIGHT - 4 };
+    (LEFT + 2, top, w, FIELD_HEIGHT - 1)
 }
 
 /// Halfway between two colors, for hints such as the empty search box's.
@@ -540,8 +579,29 @@ pub fn draw_list_text(
                 font.draw(canvas, label, label_x, top, height, color, within(clip, (x, x + TAB_WIDTH * s)));
             }
         }
+        if tab == Tab::Browse && view.signing_in {
+            for field in 0..FORM_FIELDS {
+                let rect = field_box(width, field);
+                let focused = browser.focus == Some(Field::Form(field));
+                let clips = clips(rect.1 * s, rect.3 * s);
+                draw_field(canvas, font, style, &browser.form[field], FORM_HINTS[field], field == PASSWORD, focused, rect, s, &clips);
+            }
+            // The button, and how signing in is going beside it.
+            let (x, y, w, h) = field_box(width, FORM_FIELDS);
+            let (top, height) = (y * s, h * s);
+            let label = "Sign in";
+            let label_x = x * s + (w * s - font.width(label)) / 2;
+            for clip in clips(top, height) {
+                font.draw(canvas, label, label_x, top, height, style.current, within(clip, (x * s, (x + w) * s)));
+                let status = font.fit(&browser.form_status, right - (x + w + 4) * s);
+                font.draw(canvas, &status, (x + w + 4) * s, top, height, style.normal, within(clip, (left, right)));
+            }
+            return;
+        }
         if tab == Tab::Browse {
-            draw_search_text(canvas, font, style, browser, width, s, &clips(top, height));
+            let rect = field_box(width, 0);
+            let focused = browser.focus == Some(Field::Search);
+            draw_field(canvas, font, style, &browser.search, "Search", false, focused, rect, s, &clips(top, height));
         }
     }
 
@@ -577,7 +637,7 @@ pub fn draw_list_text(
     }
 
     // Below the browser's rows: that more are on the way.
-    if browsing && browser.level().loading && drawn < view.visible_rows() {
+    if browsing && browser.level().pending.is_some() && drawn < view.visible_rows() {
         let top = (view.list_top() + drawn as i32 * ROW_HEIGHT) * s;
         let color = mix(style.normal, style.normal_bg);
         draw_row(canvas, font, "Loading...", "", color, top, ROW_HEIGHT * s, (left, right), &clips(top, ROW_HEIGHT * s), s);
@@ -608,30 +668,32 @@ fn draw_row(
     }
 }
 
-/// The search box's text, or a hint while it's empty, and the caret
-/// while typing. Long text is drawn from far enough in that the caret
-/// shows.
-fn draw_search_text(
+/// A text box's text, or a hint while it's empty, and the caret while
+/// typing in it. `rect` is the box, in skin pixels. Long text is drawn from
+/// far enough in that the caret shows; a password shows as dots.
+#[allow(clippy::too_many_arguments)]
+fn draw_field(
     canvas: &mut Canvas,
     font: &mut Font,
     style: &crate::skin::PlaylistStyle,
-    browser: &Browser,
-    width: i32,
+    field: &TextField,
+    hint: &str,
+    masked: bool,
+    focused: bool,
+    (x, y, w, h): (i32, i32, i32, i32),
     s: i32,
     clips: &[(i32, i32)],
 ) {
-    let (x, y, w, h) = search_box(width);
     let (left, right, top, height) = ((x + 2) * s, (x + w - 2) * s, (y + 1) * s, (h - 2) * s);
     let within = |(a, b): (i32, i32)| (a.max(left), b.min(right));
-    let field = &browser.search;
-    if field.text().is_empty() && !browser.searching {
-        let hint = mix(style.normal, style.normal_bg);
+    if field.text().is_empty() && !focused {
+        let color = mix(style.normal, style.normal_bg);
         for &clip in clips {
-            font.draw(canvas, "Search", left, top, height, hint, within(clip));
+            font.draw(canvas, hint, left, top, height, color, within(clip));
         }
         return;
     }
-    let chars: Vec<char> = field.text().chars().collect();
+    let chars: Vec<char> = if masked { vec!['•'; field.text().chars().count()] } else { field.text().chars().collect() };
     let caret = field.caret().min(chars.len());
     let text = |from: usize, to: usize| chars[from..to].iter().collect::<String>();
     let mut start = 0;
@@ -641,7 +703,7 @@ fn draw_search_text(
     for &clip in clips {
         font.draw(canvas, &text(start, chars.len()), left, top, height, style.normal, within(clip));
     }
-    if browser.searching {
+    if focused {
         let caret_x = left + font.width(&text(start, caret));
         canvas.fill_rect(caret_x, top + s, (s / 2).max(1) as u32, (height - 2 * s).max(1) as u32, style.normal);
     }
@@ -782,8 +844,8 @@ mod tests {
 
         view.tab = Some(Tab::Browse);
         assert_eq!(hit_test(&view, 10, 50, first + 1), Hit::SearchBox);
-        assert_eq!(hit_test(&view, 10, 50, first + SEARCH_HEIGHT + 1), Hit::BrowseRow(0));
-        assert_eq!(hit_test(&view, 1, 50, first + SEARCH_HEIGHT + ROW_HEIGHT + 1), Hit::BelowTracks);
+        assert_eq!(hit_test(&view, 10, 50, first + FIELD_HEIGHT + 1), Hit::BrowseRow(0));
+        assert_eq!(hit_test(&view, 1, 50, first + FIELD_HEIGHT + ROW_HEIGHT + 1), Hit::BelowTracks);
 
         // Even the smallest window shows two rows of the library.
         view.height = MIN_HEIGHT;

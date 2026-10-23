@@ -37,6 +37,7 @@ pub struct Config {
     pub milkdrop_open: bool,
     /// Where the music comes from.
     pub player_mode: PlayerMode,
+    pub emby: EmbyConfig,
     /// Which track in the saved playlist was current (counting from 0).
     pub playlist_current: Option<usize>,
     pub equalizer: EqualizerConfig,
@@ -65,6 +66,23 @@ impl PlayerMode {
             PlayerMode::Squeeze => "squeeze",
         }
     }
+}
+
+/// An Emby server, and how we're signed in to it. The password itself is
+/// never kept: signing in gives a token to use instead.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EmbyConfig {
+    /// Such as "http://media:8096".
+    pub url: String,
+    pub user: String,
+    /// From signing in: the user's id, and the token that proves who we
+    /// are. Empty until signed in.
+    pub user_id: String,
+    pub token: String,
+    /// A made-up id for this copy of Whiplash, chosen once: Emby keeps
+    /// track of the devices signed in to it.
+    pub device_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -109,6 +127,7 @@ impl Default for Config {
             milkdrop_presets: None,
             milkdrop_open: false,
             player_mode: PlayerMode::Local,
+            emby: EmbyConfig::default(),
             playlist_current: None,
             equalizer: EqualizerConfig::default(),
             windows: WindowsConfig { playlist_open: true, ..WindowsConfig::default() },
@@ -252,6 +271,7 @@ mod tests {
         config.windows.main = Some([100, -20]);
         config.equalizer.bands[3] = 80.0;
         config.equalizer.auto_presets.insert("song.mp3".into(), [50.0; 11]);
+        config.emby = EmbyConfig { url: "http://media:8096".into(), token: "abc".into(), ..EmbyConfig::default() };
         config.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path).unwrap(), Some(config));
         fs::remove_file(path).ok();

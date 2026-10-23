@@ -76,6 +76,7 @@ its source, available from https://crates.io.
 |---|---|---|
 | ab_glyph | 0.2.32 | Apache-2.0 |
 | ab_glyph_rasterizer | 0.1.10 | Apache-2.0 |
+| adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 |
 | ahash | 0.8.12 | MIT OR Apache-2.0 |
 | alsa | 0.11.0 | Apache-2.0/MIT |
 | alsa-sys | 0.4.0 | MIT |
@@ -96,6 +97,7 @@ its source, available from https://crates.io.
 | async-task | 4.7.1 | Apache-2.0 OR MIT |
 | async-trait | 0.1.92 | MIT OR Apache-2.0 |
 | atomic-waker | 1.1.2 | Apache-2.0 OR MIT |
+| base64 | 0.22.1 | MIT OR Apache-2.0 |
 | bitflags | 1.3.2 | MIT/Apache-2.0 |
 | bitflags | 2.13.2 | MIT OR Apache-2.0 |
 | bitstream-io | 4.10.0 | MIT/Apache-2.0 |
@@ -131,6 +133,7 @@ its source, available from https://crates.io.
 | dirs-sys | 0.5.0 | MIT OR Apache-2.0 |
 | dispatch | 0.2.0 | MIT |
 | dispatch2 | 0.3.1 | Zlib OR Apache-2.0 OR MIT |
+| displaydoc | 0.2.5 | MIT OR Apache-2.0 |
 | dlib | 0.5.3 | MIT |
 | downcast-rs | 1.2.1 | MIT/Apache-2.0 |
 | dpi | 0.1.2 | Apache-2.0 AND MIT |
@@ -154,6 +157,7 @@ its source, available from https://crates.io.
 | foreign-types | 0.5.0 | MIT/Apache-2.0 |
 | foreign-types-macros | 0.2.4 | MIT/Apache-2.0 |
 | foreign-types-shared | 0.3.1 | MIT/Apache-2.0 |
+| form_urlencoded | 1.2.2 | MIT OR Apache-2.0 |
 | futures-channel | 0.3.34 | MIT OR Apache-2.0 |
 | futures-core | 0.3.34 | MIT OR Apache-2.0 |
 | futures-io | 0.3.34 | MIT OR Apache-2.0 |
@@ -172,8 +176,18 @@ its source, available from https://crates.io.
 | hashbrown | 0.17.1 | MIT OR Apache-2.0 |
 | hermit-abi | 0.5.3 | MIT OR Apache-2.0 |
 | hex | 0.4.3 | MIT OR Apache-2.0 |
+| icu_collections | 2.1.1 | Unicode-3.0 |
+| icu_locale_core | 2.1.1 | Unicode-3.0 |
+| icu_normalizer | 2.1.1 | Unicode-3.0 |
+| icu_normalizer_data | 2.1.1 | Unicode-3.0 |
+| icu_properties | 2.1.1 | Unicode-3.0 |
+| icu_properties_data | 2.1.1 | Unicode-3.0 |
+| icu_provider | 2.1.1 | Unicode-3.0 |
+| idna | 1.1.0 | MIT OR Apache-2.0 |
+| idna_adapter | 1.2.1 | Apache-2.0 OR MIT |
 | image | 0.25.10 | MIT OR Apache-2.0 |
 | indexmap | 2.14.2 | Apache-2.0 OR MIT |
+| itoa | 1.0.18 | MIT OR Apache-2.0 |
 | jni | 0.22.4 | MIT OR Apache-2.0 |
 | jni-macros | 0.22.4 | MIT OR Apache-2.0 |
 | jni-sys | 0.3.1 | MIT OR Apache-2.0 |
@@ -188,11 +202,13 @@ its source, available from https://crates.io.
 | linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | linux-raw-sys | 0.4.15 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | linux-raw-sys | 0.9.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
+| litemap | 0.8.1 | Unicode-3.0 |
 | log | 0.4.34 | MIT OR Apache-2.0 |
 | mach2 | 0.6.0 | BSD-2-Clause OR MIT OR Apache-2.0 |
 | memchr | 2.8.3 | Unlicense OR MIT |
 | memmap2 | 0.9.11 | MIT OR Apache-2.0 |
 | memoffset | 0.9.1 | MIT |
+| miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 |
 | moxcms | 0.8.1 | BSD-3-Clause OR Apache-2.0 |
 | mpris-server | 0.10.0 | MPL-2.0 |
 | ndk | 0.9.0 | MIT OR Apache-2.0 |
@@ -237,6 +253,7 @@ its source, available from https://crates.io.
 | plain | 0.2.3 | MIT/Apache-2.0 |
 | polling | 3.11.0 | Apache-2.0 OR MIT |
 | pollster | 0.4.0 | Apache-2.0/MIT |
+| potential_utf | 0.1.4 | Unicode-3.0 |
 | ppv-lite86 | 0.2.21 | MIT OR Apache-2.0 |
 | primal-check | 0.3.4 | MIT OR Apache-2.0 |
 | proc-macro-crate | 3.5.0 | MIT OR Apache-2.0 |
@@ -259,17 +276,22 @@ its source, available from https://crates.io.
 | redox_users | 0.5.3 | MIT |
 | regex-lite | 0.1.9 | MIT OR Apache-2.0 |
 | rfd | 0.17.2 | MIT |
+| ring | 0.17.14 | Apache-2.0 AND ISC |
 | ringbuf | 0.5.3 | MIT OR Apache-2.0 |
 | roxmltree | 0.20.0 | MIT OR Apache-2.0 |
 | rustfft | 6.4.1 | MIT OR Apache-2.0 |
 | rustix | 0.38.44 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | rustix | 1.1.5 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
+| rustls | 0.23.35 | Apache-2.0 OR ISC OR MIT |
+| rustls-pki-types | 1.13.0 | MIT OR Apache-2.0 |
+| rustls-webpki | 0.103.8 | ISC |
 | rustversion | 1.0.23 | MIT OR Apache-2.0 |
 | scoped-tls | 1.0.1 | MIT/Apache-2.0 |
 | sctk-adwaita | 0.10.1 | MIT |
 | serde | 1.0.229 | MIT OR Apache-2.0 |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 |
 | serde_derive | 1.0.229 | MIT OR Apache-2.0 |
+| serde_json | 1.0.154 | MIT OR Apache-2.0 |
 | serde_repr | 0.1.21 | MIT OR Apache-2.0 |
 | serde_spanned | 1.1.2 | MIT OR Apache-2.0 |
 | signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 |
@@ -283,8 +305,10 @@ its source, available from https://crates.io.
 | smithay-client-toolkit | 0.19.2 | MIT |
 | smol_str | 0.2.2 | MIT OR Apache-2.0 |
 | softbuffer | 0.4.8 | MIT OR Apache-2.0 |
+| stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 |
 | strength_reduce | 0.2.4 | MIT OR Apache-2.0 |
 | strict-num | 0.1.1 | MIT |
+| subtle | 2.6.1 | BSD-3-Clause |
 | symphonia | 0.6.1 | MPL-2.0 |
 | symphonia-bundle-flac | 0.6.1 | MPL-2.0 |
 | symphonia-bundle-mp3 | 0.6.1 | MPL-2.0 |
@@ -303,6 +327,7 @@ its source, available from https://crates.io.
 | symphonia-metadata | 0.6.1 | MPL-2.0 |
 | syn | 2.0.119 | MIT OR Apache-2.0 |
 | syn | 3.0.9 | MIT OR Apache-2.0 |
+| synstructure | 0.13.2 | MIT |
 | tempfile | 3.27.0 | MIT OR Apache-2.0 |
 | thiserror | 1.0.69 | MIT OR Apache-2.0 |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 |
@@ -311,6 +336,7 @@ its source, available from https://crates.io.
 | tiny-skia | 0.11.4 | BSD-3-Clause |
 | tiny-skia-path | 0.11.4 | BSD-3-Clause |
 | tiny-xlib | 0.2.5 | MIT OR Apache-2.0 OR Zlib |
+| tinystr | 0.8.2 | Unicode-3.0 |
 | tinyvec | 1.13.3 | Zlib OR Apache-2.0 OR MIT |
 | tokio | 1.53.3 | MIT |
 | toml | 1.1.8+spec-1.1.0 | MIT OR Apache-2.0 |
@@ -328,6 +354,10 @@ its source, available from https://crates.io.
 | uds_windows | 1.2.1 | MIT |
 | unicode-ident | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 |
+| untrusted | 0.9.0 | ISC |
+| ureq | 2.12.1 | MIT OR Apache-2.0 |
+| url | 2.5.7 | MIT OR Apache-2.0 |
+| utf8_iter | 1.0.4 | Apache-2.0 OR MIT |
 | uuid | 1.28.0 | Apache-2.0 OR MIT |
 | wasi | 0.11.1+wasi-snapshot-preview1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | wasip2 | 1.0.4+wasi-0.2.12 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
@@ -347,6 +377,8 @@ its source, available from https://crates.io.
 | wayland-sys | 0.31.11 | MIT |
 | web-sys | 0.3.106 | MIT OR Apache-2.0 |
 | web-time | 1.1.0 | MIT OR Apache-2.0 |
+| webpki-roots | 0.26.11 | CDLA-Permissive-2.0 |
+| webpki-roots | 1.0.4 | CDLA-Permissive-2.0 |
 | windows | 0.62.2 | MIT OR Apache-2.0 |
 | windows_aarch64_gnullvm | 0.52.6 | MIT OR Apache-2.0 |
 | windows_aarch64_msvc | 0.52.6 | MIT OR Apache-2.0 |
@@ -373,12 +405,15 @@ its source, available from https://crates.io.
 | winit | 0.30.13 | Apache-2.0 |
 | winnow | 1.0.4 | MIT |
 | wit-bindgen | 0.57.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
+| writeable | 0.6.2 | Unicode-3.0 |
 | x11-dl | 2.21.0 | MIT |
 | x11rb | 0.13.2 | MIT OR Apache-2.0 |
 | x11rb-protocol | 0.13.2 | MIT OR Apache-2.0 |
 | xcursor | 0.3.11 | MIT |
 | xkbcommon-dl | 0.4.2 | MIT |
 | xkeysym | 0.2.1 | MIT OR Apache-2.0 OR Zlib |
+| yoke | 0.8.1 | Unicode-3.0 |
+| yoke-derive | 0.8.1 | Unicode-3.0 |
 | zbus | 5.19.0 | MIT |
 | zbus_macros | 5.19.0 | MIT |
 | zbus_names | 4.3.5 | MIT |
@@ -386,8 +421,15 @@ its source, available from https://crates.io.
 | zeno | 0.3.3 | Apache-2.0 OR MIT |
 | zerocopy | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT |
 | zerocopy-derive | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT |
+| zerofrom | 0.1.6 | Unicode-3.0 |
+| zerofrom-derive | 0.1.6 | Unicode-3.0 |
+| zeroize | 1.8.2 | Apache-2.0 OR MIT |
+| zerotrie | 0.2.3 | Unicode-3.0 |
+| zerovec | 0.11.5 | Unicode-3.0 |
+| zerovec-derive | 0.11.2 | Unicode-3.0 |
 | zip | 9.0.3 | MIT |
 | zlib-rs | 0.6.8 | Zlib |
+| zmij | 1.0.23 | MIT |
 | zopfli | 0.8.4 | Apache-2.0 |
 | zvariant | 5.15.1 | MIT |
 | zvariant_derive | 5.15.1 | MIT |

@@ -8,11 +8,21 @@ use symphonia::core::codecs::audio::AudioDecoder;
 use symphonia::core::errors::Error;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatReader, SeekMode, SeekTo, TrackType};
-use symphonia::core::io::MediaSourceStream;
+use symphonia::core::io::{MediaSource, MediaSourceStream};
 use symphonia::core::meta::StandardTag;
 use symphonia::core::units::{Time, TimeBase};
 
+use super::http::HttpSource;
 use crate::location::Location;
+
+/// Where to read a track from.
+#[derive(Clone)]
+pub enum Source {
+    File(std::path::PathBuf),
+    /// A web address (never shown or saved: it may hold a token), and a
+    /// title to show if the track has no tags.
+    Http { url: String, title: String },
+}
 
 /// File extensions offered in the open-file dialog.
 pub const EXTENSIONS: &[&str] = &[
@@ -68,16 +78,34 @@ pub struct Track {
 }
 
 impl Track {
+    /// Opens a file.
     pub fn open(path: &Path) -> Result<Track> {
-        let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
-        let file_size = file.metadata().map(|m| m.len()).ok();
-        let source = MediaSourceStream::new(Box::new(file), Default::default());
+        Track::open_source(&Source::File(path.to_owned()), Location::File(path.to_owned()))
+    }
 
-        // The extension helps symphonia guess the format faster.
+    /// Opens a track from a file or the web. Reading from the web waits
+    /// for the server, so that's best done away from the windows' thread.
+    pub fn open_source(source: &Source, location: Location) -> Result<Track> {
+        // The file type helps symphonia guess the format faster.
         let mut hint = Hint::new();
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            hint.with_extension(ext);
-        }
+        let (media, fallback_title): (Box<dyn MediaSource>, String) = match source {
+            Source::File(path) => {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    hint.with_extension(ext);
+                }
+                let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+                (Box::new(file), location.fallback_title())
+            }
+            Source::Http { url, title } => {
+                let http = HttpSource::open(url).context("couldn't get the track from the server")?;
+                if let Some(mime) = http.content_type() {
+                    hint.mime_type(mime);
+                }
+                (Box::new(http), title.clone())
+            }
+        };
+        let file_size = media.byte_len();
+        let source = MediaSourceStream::new(media, Default::default());
         let mut format = symphonia::default::get_probe()
             .probe(&hint, source, Default::default(), Default::default())
             .context("unsupported file format")?;
@@ -100,16 +128,14 @@ impl Track {
             _ => None,
         };
         let tags = read_tags(format.as_mut());
-        let title = tags.display_title().unwrap_or_else(|| {
-            path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
-        });
+        let title = tags.display_title().unwrap_or(fallback_title);
 
         Ok(Track {
             format,
             decoder,
             track_id,
             time_base,
-            info: TrackInfo { location: Location::File(path.to_owned()), title, tags, duration, sample_rate, channels, kbps },
+            info: TrackInfo { location, title, tags, duration, sample_rate, channels, kbps },
             skip_frames: 0,
             interleaved: Vec::new(),
             stereo: Vec::new(),
@@ -274,6 +300,24 @@ mod tests {
         let landed = track.seek(1.5).unwrap();
         assert!((landed - 1.5).abs() < 0.001, "landed at {landed}");
 
+        let mut frames = 0;
+        while let Some(chunk) = track.next_chunk() {
+            frames += chunk.len() / 2;
+        }
+        assert!((frames as i64 - 12_000).abs() <= 1, "{frames} frames left");
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn plays_from_the_web() {
+        let path = temp_wav("web", 8000, 2, 8000 * 3);
+        let url = super::super::http::serve(std::fs::read(&path).unwrap());
+        let location = Location::File(PathBuf::from("from the web"));
+        let mut track = Track::open_source(&Source::Http { url, title: "Web Track".into() }, location).unwrap();
+        assert_eq!(track.info.title, "Web Track");
+        assert_eq!(track.info.duration, Some(3.0));
+        let landed = track.seek(1.5).unwrap();
+        assert!((landed - 1.5).abs() < 0.001, "landed at {landed}");
         let mut frames = 0;
         while let Some(chunk) = track.next_chunk() {
             frames += chunk.len() / 2;

@@ -1,15 +1,28 @@
 //! The playlist window in a music server mode: its tabs, the library
-//! browser and the search box.
+//! browser, searching, signing in to the server, and playing what's chosen.
 
 use std::time::Instant;
 
 use winit::keyboard::{Key, NamedKey};
 
 use super::playlist::DOUBLE_CLICK;
-use super::App;
-use crate::library::Request;
-use crate::ui::browse::Row;
+use super::{App, UserEvent};
+use crate::audio::Source;
+use crate::config::{EmbyConfig, PlayerMode};
+use crate::library::{self, Item, ItemKind, Job, Library, Reply, Request, ServerConfig, SignedOut, emby};
+use crate::location::Location;
+use crate::ui::browse::{Browser, FORM_FIELDS, Field, PASSWORD, Row};
 use crate::ui::playlist_window::{self, Tab};
+use crate::ui::text_field::TextField;
+
+/// What a request to the library was for.
+pub(super) enum Wanted {
+    /// The list the browser is waiting for.
+    List,
+    /// Tracks to add to the playlist.
+    Queue,
+    SignIn,
+}
 
 impl App {
     /// How many rows the list showing has: tracks, or the browser's rows.
@@ -29,9 +42,171 @@ impl App {
             Tab::Queue => self.pl.queue_scroll,
         };
         self.pl.tab = Some(tab);
-        self.browser.searching = false;
+        self.browser.focus = None;
         self.last_click = None;
     }
+
+    // ----- The server -----
+
+    /// The mode's server and how we're signed in to it; none for local files.
+    fn server_config(&self) -> Option<ServerConfig> {
+        match self.mode {
+            PlayerMode::Local | PlayerMode::Squeeze => None,
+            PlayerMode::Emby => Some(ServerConfig::Emby(self.emby.clone())),
+        }
+    }
+
+    fn signed_in(&self) -> bool {
+        match self.mode {
+            PlayerMode::Local | PlayerMode::Squeeze => false,
+            PlayerMode::Emby => !self.emby.token.is_empty(),
+        }
+    }
+
+    /// Starts talking to the mode's server, after switching mode or
+    /// signing in. Shows the sign-in form if we're not signed in.
+    pub(super) fn connect_library(&mut self) {
+        self.library_jobs.clear();
+        self.library = self.server_config().map(|config| {
+            let proxy = self.proxy.clone();
+            Library::connect(config, move || {
+                let _ = proxy.send_event(UserEvent::Library);
+            })
+        });
+        self.pl.signing_in = false;
+        if self.mode != PlayerMode::Local && !self.signed_in() {
+            self.show_sign_in(String::new());
+        }
+    }
+
+    /// Shows the sign-in form, filled in with what's known, with `status`
+    /// beside its button.
+    pub(super) fn show_sign_in(&mut self, status: String) {
+        let (url, user) = match self.mode {
+            PlayerMode::Emby => (self.emby.url.clone(), self.emby.user.clone()),
+            PlayerMode::Local | PlayerMode::Squeeze => return,
+        };
+        for (field, text) in self.browser.form.iter_mut().zip([url, user, String::new()]) {
+            *field = TextField::default();
+            field.insert(&text);
+        }
+        self.browser.form_status = status;
+        self.pl.signing_in = true;
+        self.set_tab(Tab::Browse);
+        self.pl.scroll = 0;
+        // Typing starts in the first empty field.
+        let empty = self.browser.form.iter().position(|f| f.text().is_empty());
+        self.browser.focus = Some(Field::Form(empty.unwrap_or(PASSWORD)));
+    }
+
+    /// Signs in with what's in the form.
+    pub(super) fn sign_in(&mut self) {
+        let [url, user, password] = self.browser.form.clone().map(|f| f.text().trim().to_string());
+        if url.is_empty() || user.is_empty() {
+            self.browser.form_status = "Fill in the address and user name".to_string();
+            return;
+        }
+        let config = match self.mode {
+            PlayerMode::Emby => {
+                if self.emby.device_id.is_empty() {
+                    self.emby.device_id = format!("{:016x}{:016x}", fastrand::u64(..), fastrand::u64(..));
+                }
+                let device_id = self.emby.device_id.clone();
+                ServerConfig::Emby(EmbyConfig { url: library::tidy_url(&url), user: user.clone(), device_id, ..EmbyConfig::default() })
+            }
+            PlayerMode::Local | PlayerMode::Squeeze => return,
+        };
+        let proxy = self.proxy.clone();
+        let mut library = Library::connect(config, move || {
+            let _ = proxy.send_event(UserEvent::Library);
+        });
+        self.library_jobs.clear();
+        self.library_jobs.insert(library.send(Job::SignIn { user, password }), Wanted::SignIn);
+        self.library = Some(library);
+        self.browser.form_status = "Signing in...".to_string();
+        self.browser.focus = None;
+    }
+
+    /// Asks the library for a list. Returns the request's ticket.
+    fn request_library(&mut self, request: Request, wanted: Wanted) -> Option<u64> {
+        let ticket = self.library.as_mut()?.send(Job::List(request));
+        self.library_jobs.insert(ticket, wanted);
+        Some(ticket)
+    }
+
+    /// Acts on the library's answers.
+    pub(super) fn library_replies(&mut self) {
+        let replies: Vec<_> = self.library.as_ref().map(|l| l.replies().collect()).unwrap_or_default();
+        for (ticket, reply) in replies {
+            let Some(wanted) = self.library_jobs.remove(&ticket) else { continue };
+            match (wanted, reply) {
+                (Wanted::SignIn, Ok(Reply::SignedIn(config))) => {
+                    match config {
+                        ServerConfig::Emby(config) => self.emby = config,
+                    }
+                    self.browser = Browser::default();
+                    self.connect_library();
+                    self.show_message(format!("signed in to {}", self.mode.name()));
+                }
+                (Wanted::SignIn, Err(err)) => self.browser.form_status = format!("{err:#}"),
+                (_, Err(err)) if err.is::<SignedOut>() => self.show_sign_in("Please sign in again".to_string()),
+                (Wanted::List, reply) => {
+                    let level = self.browser.level_mut();
+                    if level.pending != Some(ticket) {
+                        continue; // the browser has moved on
+                    }
+                    level.pending = None;
+                    match reply {
+                        Ok(Reply::Items(items)) => level.items = items,
+                        Ok(Reply::SignedIn(_)) => {}
+                        Err(err) => self.show_error(format!("{}: {err:#}", self.mode.name())),
+                    }
+                }
+                (Wanted::Queue, Ok(Reply::Items(items))) => {
+                    let added = self.queue_items(&items);
+                    self.show_message(format!("added {added} track(s) to the playlist"));
+                }
+                (Wanted::Queue, Err(err)) => self.show_error(format!("{}: {err:#}", self.mode.name())),
+                (Wanted::Queue | Wanted::SignIn, Ok(_)) => {}
+            }
+        }
+        self.pl.scroll_to(self.pl.scroll as isize, self.pl_rows());
+    }
+
+    /// Where a track of the mode's library plays from: its address on the
+    /// server, with `title` to show if it has no tags. None if we're not
+    /// signed in.
+    pub(super) fn web_source(&self, location: &Location, title: &str) -> Option<Source> {
+        let url = match location {
+            Location::Emby(id) if !self.emby.token.is_empty() => emby::stream_url(&self.emby, id),
+            _ => return None,
+        };
+        Some(Source::Http { url, title: title.to_string() })
+    }
+
+    /// A playlist entry's location for a track of the mode's library.
+    fn track_location(&self, id: &str) -> Location {
+        match self.mode {
+            PlayerMode::Emby => Location::Emby(id.to_string()),
+            // Local files have no library to browse.
+            PlayerMode::Local | PlayerMode::Squeeze => Location::File(id.into()),
+        }
+    }
+
+    /// Adds the tracks among `items` to the end of the playlist. Returns
+    /// how many there were.
+    fn queue_items(&mut self, items: &[Item]) -> usize {
+        let tracks: Vec<_> = items
+            .iter()
+            .filter(|item| item.kind == ItemKind::Track)
+            .map(|item| (self.track_location(&item.id), item.title.clone(), item.duration))
+            .collect();
+        let count = tracks.len();
+        self.playlist.append_known(tracks);
+        count
+    }
+
+    // ----- Browsing -----
 
     /// A click on a row of the browser: selects it, or a double-click
     /// opens it. The first row below the top goes back up.
@@ -55,17 +230,31 @@ impl App {
         }
     }
 
-    /// Opens an item: the list it leads to, or for a track, plays it.
-    fn browse_open(&mut self, item: usize) {
-        let Some(item) = self.browser.level().items.get(item).cloned() else { return };
+    /// Opens an item: the list it leads to, or for a track, plays the
+    /// tracks of the list from that one on.
+    fn browse_open(&mut self, index: usize) {
+        let Some(item) = self.browser.level().items.get(index).cloned() else { return };
         match item.request() {
             Some(request) => {
-                self.browser.open(item.title, self.pl.scroll);
+                let ticket = self.request_library(request, Wanted::List);
+                self.browser.open(item.title, self.pl.scroll, ticket);
                 self.pl.scroll = 0;
-                self.request_library(request);
             }
-            None => self.show_message(format!("can't play from {} yet", self.mode.name())),
+            None => self.play_from_browser(index),
         }
+    }
+
+    /// Replaces the playlist with the tracks of the list shown and plays
+    /// them, starting with item `index`.
+    fn play_from_browser(&mut self, index: usize) {
+        let items = self.browser.level().items.clone();
+        let start = items[..index].iter().filter(|item| item.kind == ItemKind::Track).count();
+        self.player.clear();
+        self.playlist.clear();
+        self.queue_items(&items);
+        self.playlist.set_current(start);
+        self.pl.queue_scroll = start.saturating_sub(1);
+        self.play_current();
     }
 
     fn browse_back(&mut self) {
@@ -74,40 +263,72 @@ impl App {
         }
     }
 
+    /// The ADD button in a music server mode: adds what's selected in the
+    /// library to the playlist. On the Queue tab, it goes to the library.
+    pub(super) fn add_from_library(&mut self) {
+        if self.pl.tab == Some(Tab::Queue) || self.pl.signing_in {
+            return self.set_tab(Tab::Browse);
+        }
+        let level = self.browser.level();
+        let Some(item) = level.selected.and_then(|i| level.items.get(i)).cloned() else {
+            return self.show_message("choose something in the library to add".to_string());
+        };
+        let request = match item.kind {
+            ItemKind::Track => {
+                self.queue_items(&[item]);
+                return self.show_message("added 1 track to the playlist".to_string());
+            }
+            ItemKind::Album => Request::Tracks { album: item.id },
+            ItemKind::Artist => Request::ArtistTracks { artist: item.id },
+            ItemKind::Folder => return self.show_message(format!("open {} to add from it", item.title.to_lowercase())),
+        };
+        self.request_library(request, Wanted::Queue);
+        self.show_message(format!("adding {}...", item.title));
+    }
+
     /// Searches the library for what's in the search box.
     fn search(&mut self) {
         let query = self.browser.search.text().trim().to_string();
-        self.browser.searching = false;
+        self.browser.focus = None;
         if query.is_empty() {
             return;
         }
         self.browser.top();
-        self.browser.open(format!("Search: {query}"), 0);
+        let ticket = self.request_library(Request::Search(query.clone()), Wanted::List);
+        self.browser.open(format!("Search: {query}"), 0, ticket);
         self.pl.scroll = 0;
-        self.request_library(Request::Search(query));
     }
 
-    /// Asks the server for a list for the browser.
-    fn request_library(&mut self, _request: Request) {
-        self.show_message(format!("not connected to {} yet", self.mode.name()));
-    }
+    // ----- Keys -----
 
-    /// Keys while typing in the search box. `text` is what the key types.
-    /// Returns false for keys left to the usual shortcuts.
-    pub(super) fn search_key_pressed(&mut self, key: &Key, text: Option<&str>) -> bool {
+    /// Keys while typing in the search box or the sign-in form. `text` is
+    /// what the key types. Returns false for keys left to the usual
+    /// shortcuts.
+    pub(super) fn field_key_pressed(&mut self, key: &Key, text: Option<&str>) -> bool {
+        let Some(focus) = self.browser.focus else { return false };
         let command = self.command_key();
-        let field = &mut self.browser.search;
-        match key {
-            Key::Named(NamedKey::Enter) => self.search(),
+        let shift = self.modifiers.shift_key();
+        let next_field = |i: usize, back: bool| Field::Form((i + if back { FORM_FIELDS - 1 } else { 1 }) % FORM_FIELDS);
+        let field = match focus {
+            Field::Search => &mut self.browser.search,
+            Field::Form(i) => &mut self.browser.form[i],
+        };
+        match (key, focus) {
+            (Key::Named(NamedKey::Enter), Field::Search) => self.search(),
+            (Key::Named(NamedKey::Enter), Field::Form(_)) => self.sign_in(),
+            (Key::Named(NamedKey::Tab), Field::Form(i)) => self.browser.focus = Some(next_field(i, shift)),
+            (Key::Named(NamedKey::ArrowDown), Field::Form(i)) => self.browser.focus = Some(next_field(i, false)),
+            (Key::Named(NamedKey::ArrowUp), Field::Form(i)) => self.browser.focus = Some(next_field(i, true)),
             // Escape clears the search, then leaves the box.
-            Key::Named(NamedKey::Escape) if field.text().is_empty() => self.browser.searching = false,
-            Key::Named(NamedKey::Escape) => field.clear(),
-            Key::Named(NamedKey::Backspace) => field.backspace(),
-            Key::Named(NamedKey::Delete) => field.delete(),
-            Key::Named(NamedKey::ArrowLeft) => field.left(),
-            Key::Named(NamedKey::ArrowRight) => field.right(),
-            Key::Named(NamedKey::Home | NamedKey::ArrowUp) => field.home(),
-            Key::Named(NamedKey::End | NamedKey::ArrowDown) => field.end(),
+            (Key::Named(NamedKey::Escape), Field::Search) if !field.text().is_empty() => field.clear(),
+            (Key::Named(NamedKey::Escape), _) => self.browser.focus = None,
+            (Key::Named(NamedKey::Backspace), _) => field.backspace(),
+            (Key::Named(NamedKey::Delete), _) => field.delete(),
+            (Key::Named(NamedKey::ArrowLeft), _) => field.left(),
+            (Key::Named(NamedKey::ArrowRight), _) => field.right(),
+            (Key::Named(NamedKey::Home | NamedKey::ArrowUp), _) => field.home(),
+            (Key::Named(NamedKey::End | NamedKey::ArrowDown), _) => field.end(),
+            (Key::Named(NamedKey::Tab), _) => {}
             _ if command => return false,
             _ => match text.filter(|t| !t.chars().all(char::is_control)) {
                 Some(typed) => field.insert(typed),
@@ -121,6 +342,9 @@ impl App {
     /// Left or Backspace goes back up, Ctrl/Cmd+F goes to the search box.
     /// Returns false for other keys.
     pub(super) fn browse_key_pressed(&mut self, key: &Key) -> bool {
+        if self.pl.signing_in {
+            return false;
+        }
         let count = self.browser.level().items.len();
         let selected = self.browser.level().selected;
         match key {
@@ -141,7 +365,9 @@ impl App {
                 }
             }
             Key::Named(NamedKey::ArrowLeft | NamedKey::Backspace) => self.browse_back(),
-            Key::Character(c) if c.eq_ignore_ascii_case("f") && self.command_key() => self.browser.searching = true,
+            Key::Character(c) if c.eq_ignore_ascii_case("f") && self.command_key() => {
+                self.browser.focus = Some(Field::Search);
+            }
             _ => return false,
         }
         true

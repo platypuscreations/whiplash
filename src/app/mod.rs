@@ -33,8 +33,9 @@ use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
 
-use crate::audio::{self, PlayState, Player};
-use crate::config::{self, Config, PlayerMode, WindowsConfig};
+use crate::audio::{self, Opener, PlayState, Player};
+use crate::config::{self, Config, EmbyConfig, PlayerMode, WindowsConfig};
+use crate::library::Library;
 use crate::metadata::MetadataReader;
 use crate::playlist::Playlist;
 use crate::skin::Skin;
@@ -80,6 +81,10 @@ pub enum UserEvent {
     DialogClosed(dialogs::Purpose, Vec<PathBuf>),
     /// A media key, or the desktop's media controls.
     Media(media::Command),
+    /// The music server has answered.
+    Library,
+    /// A track from the web has opened, or failed to.
+    TrackOpened,
 }
 
 /// Which of the app's windows something refers to.
@@ -325,6 +330,17 @@ pub struct App {
     parked: std::collections::HashMap<PlayerMode, Playlist>,
     /// The music server's library, in the playlist window.
     browser: Browser,
+    emby: EmbyConfig,
+    /// Talks to the mode's music server; none for local files.
+    library: Option<Library>,
+    /// What each request to the library still waiting for an answer was for.
+    library_jobs: std::collections::HashMap<u64, browse::Wanted>,
+    /// Opens tracks from the web without holding up the windows.
+    opener: Opener,
+    /// The track being opened by `opener`, by the ticket it was given;
+    /// tickets count up from `last_ticket`.
+    opening: Option<u64>,
+    last_ticket: u64,
     metadata: MetadataReader,
     visualizer: Visualizer,
     modifiers: ModifiersState,
@@ -447,6 +463,17 @@ impl App {
             playlist: Playlist::default(),
             parked: std::collections::HashMap::new(),
             browser: Browser::default(),
+            emby: config.emby.clone(),
+            library: None,
+            library_jobs: std::collections::HashMap::new(),
+            opener: {
+                let proxy = proxy.clone();
+                Opener::new(move || {
+                    let _ = proxy.send_event(UserEvent::TrackOpened);
+                })
+            },
+            opening: None,
+            last_ticket: 0,
             metadata: {
                 let proxy = proxy.clone();
                 MetadataReader::new(move || {
@@ -496,6 +523,7 @@ impl App {
         // Music given on the command line is played as local files.
         let mode = if tracks.is_empty() { config.player_mode } else { PlayerMode::Local };
         app.restore_playlists(mode, config.playlist_current, tracks.is_empty());
+        app.connect_library();
         if !tracks.is_empty() {
             app.add_tracks(tracks, true);
         }
@@ -521,6 +549,7 @@ impl App {
             milkdrop_presets: self.milkdrop_presets.clone(),
             milkdrop_open: self.milkdrop_open,
             player_mode: self.mode,
+            emby: self.emby.clone(),
             playlist_current: self.playlist_of(PlayerMode::Local).and_then(Playlist::current_index),
             equalizer: config::EqualizerConfig {
                 enabled: self.eq.enabled,
@@ -549,32 +578,78 @@ impl App {
 
     // ----- Player actions -----
 
+    /// Plays the playlist's current track. A file starts at once; a track
+    /// from the web is opened in the background, and starts once it has
+    /// (see `track_opened`).
     fn play_current(&mut self) {
-        let Some(path) = self.playlist.current().and_then(|l| l.file()).map(Path::to_path_buf) else { return };
-        match self.player.open(&path) {
-            Ok(()) => {
-                // Opening the file read its details; show them in the list.
-                if let (Some(info), Some(index)) = (self.player.info(), self.playlist.current_index()) {
-                    let id = self.playlist.entries()[index].id;
-                    self.playlist.set_details(id, info.title.clone(), info.duration);
-                    if self.pl.tab != Some(playlist_window::Tab::Browse) {
-                        self.pl.reveal(index, self.playlist.len());
-                    }
-                }
-                self.apply_auto_preset();
+        let Some(entry) = self.playlist.current_index().map(|i| self.playlist.entries()[i].clone()) else { return };
+        self.opening = None;
+        if let Some(path) = entry.location.file() {
+            match self.player.open(path) {
+                Ok(()) => self.track_started(),
+                Err(err) => self.show_error(format!("{}: {err:#}", file_name(path))),
             }
-            Err(err) => self.show_error(format!("{}: {err:#}", file_name(&path))),
+        } else if let Some(source) = self.web_source(&entry.location, &entry.title) {
+            self.player.clear();
+            self.last_ticket += 1;
+            self.opening = Some(self.last_ticket);
+            self.opener.open(self.last_ticket, source, entry.location);
+            self.show_message(format!("opening: {}", entry.title));
+        } else {
+            self.player.clear();
+            self.show_sign_in("Sign in to play".to_string());
         }
         self.redraw(Kind::Playlist);
     }
 
+    /// Starts the track opened in the background, if it's still wanted.
+    fn track_opened(&mut self) {
+        let opened: Vec<_> = self.opener.results().collect();
+        for (ticket, result) in opened {
+            if self.opening != Some(ticket) {
+                continue; // something else was chosen meanwhile
+            }
+            self.opening = None;
+            self.message = None;
+            let title = self.playlist.current_index().map(|i| self.playlist.entries()[i].title.clone()).unwrap_or_default();
+            match result.and_then(|track| self.player.start(track)) {
+                Ok(()) => self.track_started(),
+                Err(err) => self.show_error(format!("{title}: {err:#}")),
+            }
+        }
+    }
+
+    /// Once a track starts: its details (read as it opened) go in the
+    /// playlist, and its equalizer preset is loaded if "auto" is on.
+    fn track_started(&mut self) {
+        if let (Some(info), Some(index)) = (self.player.info(), self.playlist.current_index()) {
+            let id = self.playlist.entries()[index].id;
+            self.playlist.set_details(id, info.title.clone(), info.duration);
+            if self.pl.tab != Some(playlist_window::Tab::Browse) {
+                self.pl.reveal(index, self.playlist.len());
+            }
+        }
+        self.apply_auto_preset();
+    }
+
+    /// Stops playing, and opening a track to play.
+    fn stop(&mut self) {
+        self.opening = None;
+        self.player.stop();
+    }
+
     fn play(&mut self) {
-        if self.playlist.is_empty() {
+        if self.playlist.is_empty() && self.mode != PlayerMode::Local {
+            // There's nothing to play yet: show the library to choose from.
+            self.set_playlist_open(true);
+            self.set_tab(playlist_window::Tab::Browse);
+            self.show_message("choose music in the playlist window".to_string());
+        } else if self.playlist.is_empty() {
             self.open_dialog(dialogs::Purpose::PlayFiles);
-        } else if self.player.info().is_none() {
+        } else if self.player.state() == PlayState::Paused {
+            self.player.resume();
+        } else {
             self.play_current();
-        } else if let Err(err) = self.player.play() {
-            self.show_error(format!("{err:#}"));
         }
     }
 
@@ -620,7 +695,7 @@ impl App {
                     self.player.pause();
                 }
             }
-            media::Command::Stop => self.player.stop(),
+            media::Command::Stop => self.stop(),
             media::Command::Next => self.next(),
             media::Command::Previous => self.previous(),
             media::Command::Seek(seconds) => self.seek_by(seconds),
@@ -942,7 +1017,7 @@ impl App {
             Control::Previous => self.previous(),
             Control::Play => self.play(),
             Control::Pause => self.player.pause(),
-            Control::Stop => self.player.stop(),
+            Control::Stop => self.stop(),
             Control::Next => self.next(),
             Control::Eject => self.open_dialog(dialogs::Purpose::PlayFiles),
             Control::Shuffle => self.state.shuffle = !self.state.shuffle,
@@ -973,7 +1048,7 @@ impl App {
                 "z" => self.previous(),
                 "x" => self.play(),
                 "c" => self.player.pause(),
-                "v" => self.player.stop(),
+                "v" => self.stop(),
                 "b" => self.next(),
                 "l" => self.open_dialog(dialogs::Purpose::PlayFiles),
                 _ => {}
@@ -1190,6 +1265,14 @@ impl ApplicationHandler<UserEvent> for App {
                 self.media_command(command);
                 self.redraw_all();
             }
+            UserEvent::Library => {
+                self.library_replies();
+                self.redraw_all();
+            }
+            UserEvent::TrackOpened => {
+                self.track_opened();
+                self.redraw_all();
+            }
             UserEvent::Metadata => {
                 let results: Vec<_> = self.metadata.results().collect();
                 for details in results {
@@ -1344,11 +1427,8 @@ impl ApplicationHandler<UserEvent> for App {
                 // so Alt shortcuts go by the key itself.
                 let logical_key =
                     if self.modifiers.alt_key() { event.key_without_modifiers() } else { event.logical_key };
-                if kind == Kind::Playlist
-                    && self.browser.searching
-                    && self.search_key_pressed(&logical_key, text.as_deref())
-                {
-                    // typed into the search box
+                if kind == Kind::Playlist && self.field_key_pressed(&logical_key, text.as_deref()) {
+                    // typed into the search box or sign-in form
                 } else if logical_key == Key::Named(NamedKey::Escape) {
                     self.close_text_menu();
                     self.pl.open_menu = None;

@@ -12,7 +12,8 @@ use crate::config::PlayerMode;
 use crate::playlist::Select;
 use crate::playlist_file;
 use crate::ui::menu::{Action, Item};
-use crate::ui::playlist_window::{self, Hit, MenuItem, PlControl, PlaylistView, Tab};
+use crate::ui::browse::Field;
+use crate::ui::playlist_window::{self, Hit, MenuButton, MenuItem, PlControl, PlaylistView, Tab};
 
 /// Two clicks on the same track this close together count as a double-click.
 pub(super) const DOUBLE_CLICK: Duration = Duration::from_millis(400);
@@ -69,8 +70,12 @@ impl App {
         let Some(view) = &self.pl_view else { return };
         let (x, y) = view.cursor_in_skin();
         let hit = playlist_window::hit_test(&self.pl, self.pl_rows(), x, y);
-        // Clicking anywhere else stops typing in the search box.
-        self.browser.searching = hit == Hit::SearchBox;
+        // Typing goes where was clicked, or nowhere.
+        self.browser.focus = match hit {
+            Hit::SearchBox => Some(Field::Search),
+            Hit::FormField(field) => Some(Field::Form(field)),
+            _ => None,
+        };
 
         // Clicking anywhere outside an open button menu closes it.
         if self.pl.open_menu.is_some() {
@@ -85,6 +90,8 @@ impl App {
         match hit {
             Hit::TitleBar => self.title_bar_pressed(Kind::Playlist),
             Hit::Control(control) => self.pl.pressed = Some(control),
+            // In a music server mode, ADD adds from the library.
+            Hit::MenuButton(MenuButton::Add) if self.pl.tab.is_some() => self.add_from_library(),
             Hit::MenuButton(button) => {
                 self.pl.open_menu = Some(button);
                 self.pl.hovered = None;
@@ -95,7 +102,8 @@ impl App {
             Hit::BelowTracks if self.pl.tab == Some(Tab::Browse) => self.browser.level_mut().selected = None,
             Hit::BelowTracks => self.playlist.select_all(false),
             Hit::Tab(tab) => self.set_tab(tab),
-            Hit::SearchBox => {}
+            Hit::SearchBox | Hit::FormField(_) => {}
+            Hit::SignInButton => self.sign_in(),
             Hit::ScrollBar => {
                 self.pl.dragging_scrollbar = true;
                 self.pl.scroll = self.pl.scroll_for_handle(y, self.pl_rows());
@@ -216,7 +224,7 @@ impl App {
             PlControl::Previous => self.previous(),
             PlControl::Play => self.play(),
             PlControl::Pause => self.player.pause(),
-            PlControl::Stop => self.player.stop(),
+            PlControl::Stop => self.stop(),
             PlControl::Next => self.next(),
             PlControl::Eject => self.open_dialog(Purpose::PlayFiles),
         }
@@ -249,6 +257,7 @@ impl App {
                 ],
             ),
             MenuItem::FileInfo => self.show_file_info(),
+            MenuItem::MiscOptions if self.mode != PlayerMode::Local => self.show_sign_in(String::new()),
             MenuItem::MiscOptions => self.show_message("no playlist options yet".to_string()),
             MenuItem::SaveList => self.open_dialog(Purpose::SavePlaylist),
             MenuItem::LoadList => self.open_dialog(Purpose::LoadPlaylist),

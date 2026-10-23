@@ -95,6 +95,7 @@ impl App {
         let previous = std::mem::replace(&mut self.playlist, playlist);
         self.parked.insert(self.mode, previous);
         self.mode = mode;
+        self.opening = None;
         self.browser = Browser::default();
         self.pl.tab = tab_for(mode);
         self.pl.scroll = 0;
@@ -103,6 +104,7 @@ impl App {
         if self.pl.tab.is_none() && let Some(index) = self.playlist.current_index() {
             self.pl.reveal(index, self.playlist.len());
         }
+        self.connect_library();
         self.show_message(format!("player mode: {}", mode.name()));
     }
 }

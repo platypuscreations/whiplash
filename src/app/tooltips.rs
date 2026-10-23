@@ -248,6 +248,8 @@ impl App {
                 | playlist_window::Hit::BrowseRow(_)
                 | playlist_window::Hit::Tab(_)
                 | playlist_window::Hit::SearchBox
+                | playlist_window::Hit::FormField(_)
+                | playlist_window::Hit::SignInButton
                 | playlist_window::Hit::BelowTracks
                 | playlist_window::Hit::TitleBar
                 | playlist_window::Hit::Nothing => return None,

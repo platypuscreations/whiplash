@@ -179,10 +179,11 @@ fn bottom(p: &mut Paint) {
         }
     }
 
-    // The spare panel shown in wide windows: the Whiplash mark.
+    // The spare panel shown in wide windows: a screen for the visualizer,
+    // where the playlist window draws it.
     let (x, y, w, h) = rect(PL_VISUALIZER_BACKGROUND);
     bottom_piece(p, (x, y, w, h));
-    parts::brand_mark(p, (x + (w - 27) / 2, y + 7, 27, 22));
+    p.lcd_well((x + 2, y + 12, 72, 16));
 }
 
 /// The playlist shrunk to a strip: a display band for the current track,

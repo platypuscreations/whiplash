@@ -35,6 +35,12 @@ const RIGHT: i32 = 20;
 /// Space above the first track.
 const LIST_PADDING: i32 = 3;
 const SCROLL_HANDLE_HEIGHT: i32 = 18;
+/// The spare visualizer panel along the bottom shows in windows at least
+/// this wide. Its screen is this wide (and as tall as the main window's
+/// visualizer), at this place in the panel.
+const MIN_VISUALIZER_WIDTH: u32 = 350;
+pub const VISUALIZER_WIDTH: i32 = 72;
+const VISUALIZER_OFFSET: (i32, i32) = (2, 12);
 /// The tabs, in a music server mode.
 const TAB_HEIGHT: i32 = 12;
 const TAB_WIDTH: i32 = 40;
@@ -201,6 +207,14 @@ impl Default for PlaylistView {
 impl PlaylistView {
     fn size(&self) -> (i32, i32) {
         (self.width as i32, self.height as i32)
+    }
+
+    /// Where the visualizer goes in the panel along the bottom, if the
+    /// window is wide enough to show it.
+    pub fn visualizer_position(&self) -> Option<(i32, i32)> {
+        let (width, height) = self.size();
+        let shown = self.width >= MIN_VISUALIZER_WIDTH && !self.shaded;
+        shown.then(|| (width - 225 + VISUALIZER_OFFSET.0, height - BOTTOM + VISUALIZER_OFFSET.1))
     }
 
     /// The window's current height, allowing for shade mode.
@@ -434,7 +448,7 @@ pub fn draw(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: &Pl
     for x in (125..width - 150).step_by(25) {
         canvas.draw(skin, PL_BOTTOM_TILE, x, height - BOTTOM);
     }
-    if width >= 350 {
+    if view.width >= MIN_VISUALIZER_WIDTH {
         canvas.draw(skin, PL_VISUALIZER_BACKGROUND, width - 225, height - BOTTOM);
     }
     canvas.draw(skin, PL_BOTTOM_LEFT, 0, height - BOTTOM);
@@ -746,14 +760,18 @@ fn draw_shaded(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: 
     }
 }
 
-/// The running-time display ("selected/total") and the mini time.
+/// The running-time display and the mini time. The running time is how
+/// far through the playlist the current track is, and the playlist's
+/// length ("12:34/1:02:03"). (Winamp showed the selected tracks' length
+/// instead of how far through.)
 fn draw_status(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, playlist: &Playlist, main: &MainState) {
     let (width, height) = view.size();
     let (x, y) = (width - 150, height - BOTTOM);
 
-    let ((selected, selected_unknown), (total, total_unknown)) = playlist.durations();
+    let ((before, before_unknown), (total, total_unknown)) = playlist.durations();
+    let playing = if main.play_state == PlayState::Stopped { 0.0 } else { main.elapsed as f64 };
     let part = |seconds: f64, unknown: bool| format!("{}{}", format_duration(seconds.round() as u64), if unknown { "+" } else { "" });
-    let running = format!("{}/{}", part(selected, selected_unknown), part(total, total_unknown));
+    let running = format!("{}/{}", part(before + playing, before_unknown), part(total, total_unknown));
     draw_bitmap_text(canvas, skin, &running, x + 7, y + 10, 18);
 
     // Elapsed time, blinking while paused like the main window's.

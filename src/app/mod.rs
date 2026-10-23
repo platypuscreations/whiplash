@@ -957,6 +957,12 @@ impl App {
                     view.canvas = Canvas::new(self.pl.width, self.pl.window_height());
                 }
                 playlist_window::draw(&mut view.canvas, &self.skin, &self.pl, &self.playlist, &self.browser, &self.state);
+                if let Some((x, y)) = self.pl.visualizer_position()
+                    && self.state.play_state != PlayState::Stopped
+                {
+                    let width = playlist_window::VISUALIZER_WIDTH;
+                    self.visualizer.draw_cropped(&mut view.canvas, &self.skin, x, y, width);
+                }
 
                 // Track names are drawn on the enlarged image, with the font
                 // loaded at that size, so they're sharp.

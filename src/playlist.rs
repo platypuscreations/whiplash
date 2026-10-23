@@ -263,8 +263,8 @@ impl Playlist {
         self.anchor = None;
     }
 
-    /// Total length of the selected tracks and of all tracks, in seconds.
-    /// The flag is true if any length is still unknown.
+    /// Total length of the tracks before the current one, and of all
+    /// tracks, in seconds. The flag is true if any length is still unknown.
     pub fn durations(&self) -> ((f64, bool), (f64, bool)) {
         let total = |entries: &mut dyn Iterator<Item = &Entry>| {
             entries.fold((0.0, false), |(sum, unknown), e| match e.duration {
@@ -272,8 +272,8 @@ impl Playlist {
                 None => (sum, true),
             })
         };
-        let selected = total(&mut self.entries.iter().filter(|e| e.selected));
-        (selected, total(&mut self.entries.iter()))
+        let before = &self.entries[..self.current_index().unwrap_or(0)];
+        (total(&mut before.iter()), total(&mut self.entries.iter()))
     }
 }
 
@@ -394,10 +394,9 @@ mod tests {
         let mut list = playlist(3);
         list.set_details(list.entries()[0].id, "a".into(), Some(60.0));
         list.set_details(list.entries()[1].id, "b".into(), Some(30.0));
-        list.click(0, Select::Only);
-        let ((selected, selected_unknown), (total, total_unknown)) = list.durations();
-        assert_eq!((selected, selected_unknown), (60.0, false));
-        assert_eq!((total, total_unknown), (90.0, true));
+        assert_eq!(list.durations(), ((0.0, false), (90.0, true)));
+        list.set_current(2);
+        assert_eq!(list.durations(), ((90.0, false), (90.0, true)));
     }
 
     #[test]

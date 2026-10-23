@@ -43,6 +43,7 @@ pub enum Action {
     // Main options
     PlayFiles,
     PlayFolder,
+    PlayerMode(crate::config::PlayerMode),
     SkinBrowser,
     ToggleEqualizer,
     TogglePlaylist,

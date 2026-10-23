@@ -10,6 +10,7 @@ mod equalizer;
 mod media;
 mod menus;
 mod milkdrop;
+mod modes;
 mod playlist;
 mod tooltips;
 mod windows;
@@ -32,10 +33,9 @@ use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::{Window, WindowId, WindowLevel};
 
 use crate::audio::{self, PlayState, Player};
-use crate::config::{self, Config, WindowsConfig};
+use crate::config::{self, Config, PlayerMode, WindowsConfig};
 use crate::metadata::MetadataReader;
 use crate::playlist::Playlist;
-use crate::playlist_file;
 use crate::skin::Skin;
 use crate::ui::canvas::Canvas;
 use crate::ui::eq_window::{self, EqState};
@@ -59,6 +59,8 @@ const MESSAGE_TIME: Duration = Duration::from_secs(4);
 const DROP_BURST: Duration = Duration::from_millis(300);
 /// Arrow keys seek by this many seconds.
 const SEEK_STEP: f64 = 5.0;
+/// Shown when music files are added in a music server mode.
+const LOCAL_ONLY: &str = "switch to local files to play files";
 /// For this long after a pop-up menu opens, losing focus doesn't close it.
 /// Opening a menu can briefly move focus around (on macOS, a right-click
 /// in an inactive app makes the app active, and macOS then refocuses the
@@ -314,7 +316,11 @@ pub struct App {
     pl_font: Option<(Font, u32)>,
     menu_font: Option<(Font, f64)>,
     player: Player,
+    /// Where the music comes from, and its playlist.
+    mode: PlayerMode,
     playlist: Playlist,
+    /// The other modes' playlists, kept while they're not in use.
+    parked: std::collections::HashMap<PlayerMode, Playlist>,
     metadata: MetadataReader,
     visualizer: Visualizer,
     modifiers: ModifiersState,
@@ -433,7 +439,9 @@ impl App {
             pl_font: None,
             menu_font: None,
             player: Player::new(),
+            mode: PlayerMode::Local,
             playlist: Playlist::default(),
+            parked: std::collections::HashMap::new(),
             metadata: {
                 let proxy = proxy.clone();
                 MetadataReader::new(move || {
@@ -479,28 +487,14 @@ impl App {
         app.player.set_volume(app.state.volume);
         app.player.set_balance(app.state.balance);
         app.apply_equalizer();
+        // The playlists saved last time are reloaded without playing.
+        // Music given on the command line is played as local files.
+        let mode = if tracks.is_empty() { config.player_mode } else { PlayerMode::Local };
+        app.restore_playlists(mode, config.playlist_current, tracks.is_empty());
         if !tracks.is_empty() {
             app.add_tracks(tracks, true);
-        } else {
-            app.restore_playlist(config.playlist_current);
         }
         app
-    }
-
-    /// Reloads the playlist saved last time, without starting playback.
-    fn restore_playlist(&mut self, current: Option<usize>) {
-        let Some(path) = config::playlist_path().filter(|p| p.exists()) else { return };
-        match playlist_file::load(&path) {
-            Ok(tracks) => {
-                let added = self.playlist.replace(tracks);
-                self.metadata.request(added);
-                if let Some(index) = current.filter(|&i| i < self.playlist.len()) {
-                    self.playlist.set_current(index);
-                    self.pl.reveal(index, self.playlist.len());
-                }
-            }
-            Err(err) => eprintln!("could not restore the playlist: {err:#}"),
-        }
     }
 
     /// Saves settings, window positions and the playlist for next time.
@@ -521,7 +515,8 @@ impl App {
             visualizer: self.visualizer.mode,
             milkdrop_presets: self.milkdrop_presets.clone(),
             milkdrop_open: self.milkdrop_open,
-            playlist_current: self.playlist.current_index(),
+            player_mode: self.mode,
+            playlist_current: self.playlist_of(PlayerMode::Local).and_then(Playlist::current_index),
             equalizer: config::EqualizerConfig {
                 enabled: self.eq.enabled,
                 auto: self.eq.auto,
@@ -544,11 +539,7 @@ impl App {
         if let Err(err) = config.save() {
             eprintln!("could not save settings: {err:#}");
         }
-        if let Some(path) = config::playlist_path()
-            && let Err(err) = playlist_file::save_m3u(&path, self.playlist.entries())
-        {
-            eprintln!("could not save the playlist: {err:#}");
-        }
+        self.save_playlists();
     }
 
     // ----- Player actions -----
@@ -1195,7 +1186,7 @@ impl ApplicationHandler<UserEvent> for App {
             UserEvent::Metadata => {
                 let results: Vec<_> = self.metadata.results().collect();
                 for details in results {
-                    self.playlist.set_details(details.id, details.title, details.duration);
+                    self.set_details(details.id, details.title, details.duration);
                 }
                 self.redraw(Kind::Playlist);
             }

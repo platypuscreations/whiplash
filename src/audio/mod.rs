@@ -285,6 +285,12 @@ impl Player {
         self.settings.paused.store(false, Relaxed);
     }
 
+    /// Stops and forgets the current track, as if none had been opened.
+    pub fn clear(&mut self) {
+        self.stop();
+        self.info = None;
+    }
+
     /// Jumps to `seconds` into the current track, keeping paused/playing.
     pub fn seek(&mut self, seconds: f64) -> Result<()> {
         let Some(playback) = self.playback.take() else { return Ok(()) };

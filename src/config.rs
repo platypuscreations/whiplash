@@ -35,10 +35,36 @@ pub struct Config {
     /// Where MilkDrop presets are; none means the `Presets` folder here.
     pub milkdrop_presets: Option<PathBuf>,
     pub milkdrop_open: bool,
+    /// Where the music comes from.
+    pub player_mode: PlayerMode,
     /// Which track in the saved playlist was current (counting from 0).
     pub playlist_current: Option<usize>,
     pub equalizer: EqualizerConfig,
     pub windows: WindowsConfig,
+}
+
+/// Where the music comes from: files on this computer, or a music server's
+/// library. Each mode has its own playlist.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlayerMode {
+    #[default]
+    Local,
+    Emby,
+    /// Logitech Media Server, which Squeezebox players play from.
+    Squeeze,
+}
+
+impl PlayerMode {
+    pub const ALL: [PlayerMode; 3] = [PlayerMode::Local, PlayerMode::Emby, PlayerMode::Squeeze];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            PlayerMode::Local => "local files",
+            PlayerMode::Emby => "emby",
+            PlayerMode::Squeeze => "squeeze",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -82,6 +108,7 @@ impl Default for Config {
             visualizer: Mode::Analyzer,
             milkdrop_presets: None,
             milkdrop_open: false,
+            player_mode: PlayerMode::Local,
             playlist_current: None,
             equalizer: EqualizerConfig::default(),
             windows: WindowsConfig { playlist_open: true, ..WindowsConfig::default() },
@@ -106,6 +133,17 @@ pub fn folder() -> Option<PathBuf> {
 
 pub fn playlist_path() -> Option<PathBuf> {
     folder().map(|f| f.join("playlist.m3u"))
+}
+
+/// Where a music server mode's playlist is kept. (Local files' playlist
+/// is `playlist_path`.)
+pub fn queue_path(mode: PlayerMode) -> Option<PathBuf> {
+    let name = match mode {
+        PlayerMode::Local => return playlist_path(),
+        PlayerMode::Emby => "queue-emby.toml",
+        PlayerMode::Squeeze => "queue-squeeze.toml",
+    };
+    folder().map(|f| f.join(name))
 }
 
 /// The default place for MilkDrop presets. Created on first use.
@@ -210,7 +248,7 @@ mod tests {
     #[test]
     fn round_trip() {
         let path = std::env::temp_dir().join(format!("whiplash-test-settings-{}.toml", std::process::id()));
-        let mut config = Config { volume: 0.3, shuffle: true, visualizer: Mode::Oscilloscope, ..Config::default() };
+        let mut config = Config { volume: 0.3, shuffle: true, visualizer: Mode::Oscilloscope, player_mode: PlayerMode::Squeeze, ..Config::default() };
         config.windows.main = Some([100, -20]);
         config.equalizer.bands[3] = 80.0;
         config.equalizer.auto_presets.insert("song.mp3".into(), [50.0; 11]);
@@ -253,6 +291,7 @@ mod tests {
     fn missing_and_unknown_settings_are_fine() {
         let config: Config = toml::from_str("volume = 0.5\nsome_future_setting = true\n[windows]\nplaylist_open = false\n").unwrap();
         assert_eq!(config.volume, 0.5);
+        assert_eq!(config.player_mode, PlayerMode::Local);
         assert!(!config.windows.playlist_open);
         assert_eq!(config.equalizer, EqualizerConfig::default());
     }

@@ -7,7 +7,8 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key, NamedKey};
 
 use super::dialogs::Purpose;
-use super::{App, Kind};
+use super::{App, Kind, LOCAL_ONLY};
+use crate::config::PlayerMode;
 use crate::playlist::Select;
 use crate::playlist_file;
 use crate::ui::menu::{Action, Item};
@@ -30,6 +31,9 @@ impl App {
     /// Adds files, folders or playlist files. `replace` starts a new list
     /// and plays it; otherwise they're added at the end.
     pub(super) fn add_tracks(&mut self, paths: Vec<PathBuf>, replace: bool) {
+        if self.mode != PlayerMode::Local {
+            return self.show_message(LOCAL_ONLY.to_string());
+        }
         let tracks = playlist_file::expand(paths);
         if tracks.is_empty() {
             self.show_message("no playable files found".to_string());

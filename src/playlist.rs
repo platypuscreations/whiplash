@@ -1,6 +1,12 @@
 //! The list of tracks, which one is playing, and which are selected.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use crate::location::Location;
+
+/// Entry ids are never reused, even between playlists, so details read in
+/// the background always find their own entry.
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// One track in the playlist.
 #[derive(Clone, Debug)]
@@ -34,7 +40,6 @@ pub struct Playlist {
     current: Option<u64>,
     /// Where the last plain or Ctrl click was, for Shift-click ranges.
     anchor: Option<usize>,
-    next_id: u64,
 }
 
 impl Playlist {
@@ -81,10 +86,7 @@ impl Playlist {
     pub fn append(&mut self, tracks: Vec<impl Into<Location>>) -> Vec<(u64, Location)> {
         let added: Vec<(u64, Location)> = tracks
             .into_iter()
-            .map(|track| {
-                self.next_id += 1;
-                (self.next_id, track.into())
-            })
+            .map(|track| (NEXT_ID.fetch_add(1, Ordering::Relaxed), track.into()))
             .collect();
         for (id, location) in &added {
             let title = location.fallback_title();
@@ -96,12 +98,21 @@ impl Playlist {
         added
     }
 
-    /// Fills in a track's title and length once its tags have been read.
-    pub fn set_details(&mut self, id: u64, title: String, duration: Option<f64>) {
-        if let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) {
-            entry.title = title;
-            entry.duration = duration;
+    /// Adds tracks whose details are already known at the end.
+    pub fn append_known(&mut self, tracks: Vec<(Location, String, Option<f64>)>) {
+        let (locations, details): (Vec<Location>, Vec<_>) = tracks.into_iter().map(|(l, t, d)| (l, (t, d))).unzip();
+        for ((id, _), (title, duration)) in self.append(locations).into_iter().zip(details) {
+            self.set_details(id, title, duration);
         }
+    }
+
+    /// Fills in a track's title and length once its tags have been read.
+    /// Returns false if no track here has that id.
+    pub fn set_details(&mut self, id: u64, title: String, duration: Option<f64>) -> bool {
+        let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) else { return false };
+        entry.title = title;
+        entry.duration = duration;
+        true
     }
 
     /// Moves to the next track. In shuffle mode that is a random other

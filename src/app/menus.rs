@@ -8,7 +8,7 @@ use winit::event_loop::ActiveEventLoop;
 use super::dialogs::{self, Purpose};
 use super::{App, Kind, Show, View, file_name, is_skin, open_skin};
 use crate::audio::{self, PlayState};
-use crate::config;
+use crate::config::{self, PlayerMode};
 use crate::eqf;
 use crate::ui::eq_window;
 use crate::ui::menu::{self, Action, Item, Menu};
@@ -77,6 +77,10 @@ impl App {
         let items = vec![
             Item::new("Play file(s)...", Action::PlayFiles).shortcut("L"),
             Item::new("Play folder...", Action::PlayFolder),
+            Item::separator(),
+            Item::new("Local files", Action::PlayerMode(PlayerMode::Local)).checked(self.mode == PlayerMode::Local),
+            Item::new("Emby", Action::PlayerMode(PlayerMode::Emby)).checked(self.mode == PlayerMode::Emby),
+            Item::new("Squeeze", Action::PlayerMode(PlayerMode::Squeeze)).checked(self.mode == PlayerMode::Squeeze),
             Item::separator(),
             Item::new("Skin browser...", Action::SkinBrowser).shortcut("Alt+S"),
             Item::separator(),
@@ -199,6 +203,7 @@ impl App {
 
             Action::PlayFiles => self.open_dialog(Purpose::PlayFiles),
             Action::PlayFolder => self.open_dialog(Purpose::PlayFolder),
+            Action::PlayerMode(mode) => self.set_player_mode(mode),
             Action::SkinBrowser => self.open_skin_browser(event_loop, Kind::Main),
             Action::ToggleEqualizer => self.set_equalizer_open(!self.state.equalizer_open),
             Action::TogglePlaylist => self.set_playlist_open(!self.state.playlist_open),

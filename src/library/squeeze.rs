@@ -325,6 +325,12 @@ mod server_tests {
 
         let sections = squeeze.sections().unwrap();
         println!("virtual libraries: {:?}", sections.iter().map(|s| &s.name).collect::<Vec<_>>());
+        for section in &sections {
+            let artists = squeeze.list(Some(&section.id), &Request::Artists).unwrap();
+            let albums = squeeze.list(Some(&section.id), &Request::Albums { artist: None }).unwrap();
+            let genres = squeeze.list(Some(&section.id), &Request::Genres).unwrap();
+            println!("  {}: {} artists, {} albums, {} genres", section.name, artists.len(), albums.len(), genres.len());
+        }
         let artists = squeeze.list(None, &Request::Artists).unwrap();
         println!("{} artists, starting with {:?}", artists.len(), artists.first().map(|a| &a.title));
         let albums = squeeze.list(None, &artists[0].request().unwrap()).unwrap();

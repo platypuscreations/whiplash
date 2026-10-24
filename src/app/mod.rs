@@ -345,6 +345,9 @@ pub struct App {
     metadata: MetadataReader,
     visualizer: Visualizer,
     modifiers: ModifiersState,
+    /// The left button went down with Control held, on a Mac: it's a
+    /// right-click until it comes up (see `control_click_as_right`).
+    control_click: bool,
     double_size: bool,
     always_on_top: bool,
     /// Window positions and states from the last run, used as the
@@ -484,6 +487,7 @@ impl App {
             },
             visualizer,
             modifiers: ModifiersState::empty(),
+            control_click: false,
             double_size: config.double_size,
             always_on_top: config.always_on_top,
             saved_positions: windows,
@@ -883,6 +887,25 @@ impl App {
             || self.state.dragging.is_some()
             || self.message.is_some()
             || main_window::marquee_scrolls(&self.state.marquee)
+    }
+
+    /// On a Mac, Control-click is a right-click, as in other Mac apps (a
+    /// trackpad with no right button has no other way). The press decides:
+    /// letting go of Control before the button still ends a right-click.
+    fn control_click_as_right(&mut self, event: WindowEvent) -> WindowEvent {
+        match event {
+            WindowEvent::MouseInput { device_id, state, button: MouseButton::Left } if cfg!(target_os = "macos") => {
+                if state == ElementState::Pressed {
+                    self.control_click = self.modifiers.control_key();
+                }
+                let button = if self.control_click { MouseButton::Right } else { MouseButton::Left };
+                if state == ElementState::Released {
+                    self.control_click = false;
+                }
+                WindowEvent::MouseInput { device_id, state, button }
+            }
+            event => event,
+        }
     }
 
     fn view(&self, kind: Kind) -> Option<&View> {
@@ -1323,6 +1346,7 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        let event = self.control_click_as_right(event);
         // The tooltip window only ever needs drawing.
         if self.tooltip_view.as_ref().is_some_and(|v| v.window.id() == id) {
             if matches!(event, WindowEvent::RedrawRequested) {

@@ -109,6 +109,15 @@ impl Server for Squeeze {
                 let found = self.list_of("titles", &[format!("artist_id:{artist}"), f("tags:ad"), f("sort:albumtrack")])?;
                 found.iter().map(track).collect()
             }
+            Request::Genres => self.list_of("genres", &[])?.iter().map(genre).collect(),
+            Request::GenreAlbums { genre } => {
+                let found = self.list_of("albums", &[format!("genre_id:{genre}"), f("tags:lay"), f("sort:artflow")])?;
+                found.iter().map(|a| album(a, text(a, "artist"))).collect()
+            }
+            Request::GenreTracks { genre } => {
+                let found = self.list_of("titles", &[format!("genre_id:{genre}"), f("tags:ad"), f("sort:albumtrack")])?;
+                found.iter().map(track).collect()
+            }
             Request::Search(text) => {
                 let search = format!("search:{text}");
                 let limit = |mut found: Vec<Value>| {
@@ -148,6 +157,16 @@ fn number(entry: &Value, field: &str) -> Option<f64> {
         Value::Number(number) => number.as_f64(),
         Value::String(text) => text.parse().ok(),
         _ => None,
+    }
+}
+
+fn genre(entry: &Value) -> Item {
+    Item {
+        kind: ItemKind::Genre,
+        id: text(entry, "id").unwrap_or_default(),
+        title: text(entry, "genre").unwrap_or_default(),
+        detail: String::new(),
+        duration: None,
     }
 }
 
@@ -217,6 +236,14 @@ mod tests {
     }
 
     #[test]
+    fn genres() {
+        let result = json!({"count": 2, "genres_loop": [{"genre": "Rock", "id": 127}, {"id": "128", "genre": "Jazz"}]});
+        let items: Vec<Item> = loop_of(&result, "genres").iter().map(genre).collect();
+        assert_eq!(titles(&items), [("Rock", ""), ("Jazz", "")]);
+        assert_eq!(items[0].request(), Some(Request::GenreAlbums { genre: "127".into() }));
+    }
+
+    #[test]
     fn passwords_go_in_a_header() {
         let mut config = SqueezeConfig { url: "http://music:9000".into(), ..SqueezeConfig::default() };
         assert_eq!(authorization(&config), None);
@@ -274,6 +301,11 @@ mod server_tests {
         println!("{}: {} tracks", albums[0].title, tracks.len());
         let found = squeeze.list(&Request::Search(artists[0].title.clone())).unwrap();
         println!("searching for {:?}: {} results", artists[0].title, found.len());
+        let genres = squeeze.list(&Request::Genres).unwrap();
+        let in_genre = squeeze.list(&genres[0].request().unwrap()).unwrap();
+        let genre_tracks = squeeze.list(&Request::GenreTracks { genre: genres[0].id.clone() }).unwrap();
+        println!("{} genres; {}: {} albums, {} tracks", genres.len(), genres[0].title, in_genre.len(), genre_tracks.len());
+        assert!(!in_genre.is_empty() && !genre_tracks.is_empty());
 
         let track = &tracks[0];
         let source =

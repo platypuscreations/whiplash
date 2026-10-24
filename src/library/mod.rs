@@ -21,6 +21,7 @@ use crate::config::{EmbyConfig, SqueezeConfig};
 pub enum ItemKind {
     /// A way into the library, such as "Artists".
     Folder,
+    Genre,
     Artist,
     Album,
     Track,
@@ -48,6 +49,11 @@ pub enum Request {
     Tracks { album: String },
     /// Every track by an artist, album by album.
     ArtistTracks { artist: String },
+    Genres,
+    /// The albums in a genre, artist by artist.
+    GenreAlbums { genre: String },
+    /// Every track in a genre, album by album.
+    GenreTracks { genre: String },
     Search(String),
 }
 
@@ -60,7 +66,9 @@ impl Item {
     pub fn request(&self) -> Option<Request> {
         match self.kind {
             ItemKind::Folder if self.id == "albums" => Some(Request::Albums { artist: None }),
+            ItemKind::Folder if self.id == "genres" => Some(Request::Genres),
             ItemKind::Folder => Some(Request::Artists),
+            ItemKind::Genre => Some(Request::GenreAlbums { genre: self.id.clone() }),
             ItemKind::Artist => Some(Request::Albums { artist: Some(self.id.clone()) }),
             ItemKind::Album => Some(Request::Tracks { album: self.id.clone() }),
             ItemKind::Track => None,
@@ -70,7 +78,7 @@ impl Item {
 
 /// Where browsing starts.
 pub fn top_level() -> Vec<Item> {
-    vec![Item::folder("Artists", "artists"), Item::folder("Albums", "albums")]
+    vec![Item::folder("Artists", "artists"), Item::folder("Albums", "albums"), Item::folder("Genres", "genres")]
 }
 
 /// Which server, and how to reach it.

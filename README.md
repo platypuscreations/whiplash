@@ -196,10 +196,10 @@ To change these later, choose **Server settings...** from the main menu.
 
 | Input | Action |
 |---|---|
-| Double-click Artists or Albums, an artist or an album | Open it |
+| Double-click Artists, Albums or Genres, an artist, album or genre | Open it (a genre opens to its albums) |
 | Click the top row (‹ ...), ← or Backspace | Go back up |
 | Double-click a track, Enter | Play the list it's in, starting with that track (replaces the playlist) |
-| Select, then ADD | Add the track, album or artist's tracks to the playlist |
+| Select, then ADD | Add the track, or all the tracks of the album, artist or genre, to the playlist |
 | Click the search box, Ctrl+F (Cmd+F) | Search; Enter searches, Esc clears |
 | Ctrl+V (Cmd+V) in the search box or sign-in form | Paste |
 

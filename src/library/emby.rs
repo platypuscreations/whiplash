@@ -148,6 +148,23 @@ impl Server for Emby {
                 ];
                 self.items(&query)?.into_iter().map(track).collect()
             }
+            Request::Genres => {
+                let found = self.get("/MusicGenres", &[("UserId", &user_id), ("SortBy", "SortName")])?;
+                found.into_iter().map(genre).collect()
+            }
+            Request::GenreAlbums { genre } => {
+                let query = [("IncludeItemTypes", "MusicAlbum"), ("GenreIds", genre.as_str()), ("SortBy", "AlbumArtist,SortName")];
+                let found = self.items(&query)?;
+                found.into_iter().map(|item| album(item, |i| i.album_artist.clone().unwrap_or_default())).collect()
+            }
+            Request::GenreTracks { genre } => {
+                let query = [
+                    ("GenreIds", genre.as_str()),
+                    ("IncludeItemTypes", "Audio"),
+                    ("SortBy", "AlbumArtist,Album,ParentIndexNumber,IndexNumber"),
+                ];
+                self.items(&query)?.into_iter().map(track).collect()
+            }
             Request::Search(text) => {
                 let query = [("SearchTerm", text.as_str()), ("IncludeItemTypes", "MusicArtist,MusicAlbum,Audio"), ("Limit", SEARCH_LIMIT)];
                 search_results(self.items(&query)?)
@@ -159,6 +176,10 @@ impl Server for Emby {
 fn parse_items(reader: impl Read) -> Result<Vec<EmbyItem>> {
     let list: ItemList = serde_json::from_reader(reader).context("the server's answer didn't make sense")?;
     Ok(list.items)
+}
+
+fn genre(item: EmbyItem) -> Item {
+    Item { kind: ItemKind::Genre, id: item.id, title: item.name, detail: String::new(), duration: None }
 }
 
 fn artist(item: EmbyItem, detail: &str) -> Item {
@@ -221,6 +242,14 @@ mod tests {
         assert_eq!(items[1].title, "Various - Intro");
         assert_eq!(items[2].title, "Silence");
         assert_eq!(items[2].request(), None);
+    }
+
+    #[test]
+    fn genres() {
+        let found = r#"{"Items":[{"Name":"Alt. Rock","Id":"30661","Type":"MusicGenre"},{"Name":"Rock","Id":"29872","Type":"MusicGenre"}]}"#;
+        let items: Vec<Item> = parse_items(found.as_bytes()).unwrap().into_iter().map(genre).collect();
+        assert_eq!(titles(&items), [("Alt. Rock", ""), ("Rock", "")]);
+        assert_eq!(items[1].request(), Some(Request::GenreAlbums { genre: "29872".into() }));
     }
 
     #[test]
@@ -311,6 +340,11 @@ mod server_tests {
         println!("{}: {} tracks", albums[0].title, tracks.len());
         let found = emby.list(&Request::Search(artists[0].title.clone())).unwrap();
         println!("searching for {:?}: {} results", artists[0].title, found.len());
+        let genres = emby.list(&Request::Genres).unwrap();
+        let in_genre = emby.list(&genres[0].request().unwrap()).unwrap();
+        let genre_tracks = emby.list(&Request::GenreTracks { genre: genres[0].id.clone() }).unwrap();
+        println!("{} genres; {}: {} albums, {} tracks", genres.len(), genres[0].title, in_genre.len(), genre_tracks.len());
+        assert!(!in_genre.is_empty() && !genre_tracks.is_empty());
 
         let track = &tracks[0];
         let source = Source::Http { url: stream_url(&config, &track.id), authorization: None, title: track.title.clone() };

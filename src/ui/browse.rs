@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn going_down_and_back_up() {
         let mut browser = Browser::default();
-        assert_eq!(browser.rows(), 2);
+        assert_eq!(browser.rows(), 3);
         assert!(matches!(browser.row(0), Some(Row::Item(0, item)) if item.title == "Artists"));
         assert!(!browser.back());
 

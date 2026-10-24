@@ -295,6 +295,7 @@ impl App {
             }
             ItemKind::Album => Request::Tracks { album: item.id },
             ItemKind::Artist => Request::ArtistTracks { artist: item.id },
+            ItemKind::Genre => Request::GenreTracks { genre: item.id },
             ItemKind::Folder => return self.show_message(format!("open {} to add from it", item.title.to_lowercase())),
         };
         self.request_library(request, Wanted::Queue);

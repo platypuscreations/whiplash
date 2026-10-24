@@ -21,6 +21,7 @@ use crate::config::{EmbyConfig, SqueezeConfig};
 pub enum ItemKind {
     /// A way into the library, such as "Artists".
     Folder,
+    Genre,
     Artist,
     Album,
     Track,
@@ -48,6 +49,11 @@ pub enum Request {
     Tracks { album: String },
     /// Every track by an artist, album by album.
     ArtistTracks { artist: String },
+    Genres,
+    /// The albums in a genre, artist by artist.
+    GenreAlbums { genre: String },
+    /// Every track in a genre, album by album.
+    GenreTracks { genre: String },
     Search(String),
 }
 
@@ -60,7 +66,9 @@ impl Item {
     pub fn request(&self) -> Option<Request> {
         match self.kind {
             ItemKind::Folder if self.id == "albums" => Some(Request::Albums { artist: None }),
+            ItemKind::Folder if self.id == "genres" => Some(Request::Genres),
             ItemKind::Folder => Some(Request::Artists),
+            ItemKind::Genre => Some(Request::GenreAlbums { genre: self.id.clone() }),
             ItemKind::Artist => Some(Request::Albums { artist: Some(self.id.clone()) }),
             ItemKind::Album => Some(Request::Tracks { album: self.id.clone() }),
             ItemKind::Track => None,
@@ -70,7 +78,16 @@ impl Item {
 
 /// Where browsing starts.
 pub fn top_level() -> Vec<Item> {
-    vec![Item::folder("Artists", "artists"), Item::folder("Albums", "albums")]
+    vec![Item::folder("Artists", "artists"), Item::folder("Albums", "albums"), Item::folder("Genres", "genres")]
+}
+
+/// One of the libraries a server keeps separately, such as Emby's
+/// "Music" and "Audio books".
+#[derive(Clone, Debug, PartialEq)]
+pub struct Section {
+    /// The server's id for it.
+    pub id: String,
+    pub name: String,
 }
 
 /// Which server, and how to reach it.
@@ -83,13 +100,18 @@ pub enum ServerConfig {
 /// What the helper thread is asked to do.
 pub enum Job {
     SignIn { user: String, password: String },
-    List(Request),
+    /// The server's music libraries.
+    Sections,
+    /// A list from one library (by its id), or from everything.
+    List(Option<String>, Request),
 }
 
 /// What it found out.
 pub enum Reply {
     /// Signed in: the server's settings to keep from now on.
     SignedIn(ServerConfig),
+    /// The server's music libraries; none if it keeps just one.
+    Sections(Vec<Section>),
     Items(Vec<Item>),
 }
 
@@ -108,7 +130,9 @@ impl std::error::Error for SignedOut {}
 /// A music server, as the helper thread talks to it.
 trait Server: Send {
     fn sign_in(&mut self, user: &str, password: &str) -> Result<ServerConfig>;
-    fn list(&mut self, request: &Request) -> Result<Vec<Item>>;
+    fn sections(&mut self) -> Result<Vec<Section>>;
+    /// A list from library `section`, or from everything without one.
+    fn list(&mut self, section: Option<&str>, request: &Request) -> Result<Vec<Item>>;
 }
 
 /// The app's side of the helper thread.
@@ -135,7 +159,8 @@ impl Library {
                 for (ticket, job) in incoming {
                     let reply = match job {
                         Job::SignIn { user, password } => server.sign_in(&user, &password).map(Reply::SignedIn),
-                        Job::List(request) => server.list(&request).map(Reply::Items),
+                        Job::Sections => server.sections().map(Reply::Sections),
+                        Job::List(section, request) => server.list(section.as_deref(), &request).map(Reply::Items),
                     };
                     if outgoing.send((ticket, reply)).is_err() {
                         break;

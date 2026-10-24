@@ -1,5 +1,6 @@
-//! The playlist window in a music server mode: its tabs, the library
-//! browser, searching, signing in to the server, and playing what's chosen.
+//! The playlist window in a music server mode: its tabs (one for each of
+//! the server's music libraries, and the Queue), the library browser,
+//! searching, signing in to the server, and playing what's chosen.
 
 use std::time::Instant;
 
@@ -9,7 +10,7 @@ use super::playlist::DOUBLE_CLICK;
 use super::{App, UserEvent};
 use crate::audio::Source;
 use crate::config::{EmbyConfig, PlayerMode, SqueezeConfig};
-use crate::library::{self, Item, ItemKind, Job, Library, Reply, Request, ServerConfig, SignedOut, emby, squeeze};
+use crate::library::{self, Item, ItemKind, Job, Library, Reply, Request, Section, ServerConfig, SignedOut, emby, squeeze};
 use crate::location::Location;
 use crate::ui::browse::{Browser, FORM_FIELDS, Field, PASSWORD, Row};
 use crate::ui::playlist_window::{self, Tab};
@@ -22,6 +23,8 @@ pub(super) enum Wanted {
     /// Tracks to add to the playlist.
     Queue,
     SignIn,
+    /// The server's libraries, for the tabs.
+    Sections,
 }
 
 impl App {
@@ -30,20 +33,65 @@ impl App {
         playlist_window::rows(&self.pl, &self.playlist, &self.browser)
     }
 
-    /// Shows the library or the playlist, each where it was left.
+    /// Shows a library or the playlist, each where it was left.
     pub(super) fn set_tab(&mut self, tab: Tab) {
         let Some(showing) = self.pl.tab.filter(|&t| t != tab) else { return };
         match showing {
-            Tab::Browse => self.browser.level_mut().scroll = self.pl.scroll,
+            Tab::Library(_) => self.browser.level_mut().scroll = self.pl.scroll,
             Tab::Queue => self.pl.queue_scroll = self.pl.scroll,
         }
+        // Another library: put this one's browser away and get that one's.
+        if let Tab::Library(i) = tab
+            && i != self.library_tab
+            && i < self.shelved.len()
+        {
+            std::mem::swap(&mut self.browser, &mut self.shelved[self.library_tab]);
+            std::mem::swap(&mut self.browser, &mut self.shelved[i]);
+            self.library_tab = i;
+            let name = self.pl.libraries.get(i).cloned().unwrap_or_default();
+            match self.mode {
+                PlayerMode::Emby => self.emby.library = name,
+                PlayerMode::Squeeze => self.squeeze.library = name,
+                PlayerMode::Local => {}
+            }
+        }
         self.pl.scroll = match tab {
-            Tab::Browse => self.browser.level().scroll,
+            Tab::Library(_) => self.browser.level().scroll,
             Tab::Queue => self.pl.queue_scroll,
         };
         self.pl.tab = Some(tab);
         self.browser.focus = None;
         self.last_click = None;
+    }
+
+    /// Makes a tab for each of the server's libraries, each with a fresh
+    /// browser, and shows the one used last time. With none, there's just
+    /// one tab, for everything.
+    pub(super) fn set_libraries(&mut self, sections: Vec<Section>) {
+        let names: Vec<String> = match sections.is_empty() {
+            true => vec!["Library".to_string()],
+            false => sections.iter().map(|s| s.name.clone()).collect(),
+        };
+        let last = match self.mode {
+            PlayerMode::Emby => &self.emby.library,
+            PlayerMode::Squeeze => &self.squeeze.library,
+            PlayerMode::Local => "",
+        };
+        self.library_tab = names.iter().position(|name| name == last).unwrap_or(0);
+        self.sections = sections;
+        self.browser = Browser::default();
+        self.shelved = names.iter().map(|_| Browser::default()).collect();
+        self.pl.libraries = names;
+        if self.pl.tab.is_some_and(Tab::is_library) {
+            self.pl.tab = Some(Tab::Library(self.library_tab));
+            self.pl.scroll = 0;
+        }
+        self.last_click = None;
+    }
+
+    /// The server's id for the library showing; none if it has just one.
+    fn section_id(&self) -> Option<String> {
+        self.sections.get(self.library_tab).map(|section| section.id.clone())
     }
 
     // ----- The server -----
@@ -76,14 +124,22 @@ impl App {
             })
         });
         self.pl.signing_in = false;
+        self.set_libraries(Vec::new());
         if self.mode != PlayerMode::Local && !self.signed_in() {
             self.show_sign_in(String::new());
+        } else if let Some(library) = &mut self.library {
+            self.library_jobs.insert(library.send(Job::Sections), Wanted::Sections);
         }
     }
 
     /// Shows the sign-in form, filled in with what's known, with `status`
     /// beside its button.
     pub(super) fn show_sign_in(&mut self, status: String) {
+        // Signed out, the libraries aren't known: there's one tab, for the form.
+        if self.mode == PlayerMode::Local {
+            return;
+        }
+        self.set_libraries(Vec::new());
         let (url, user, password) = match self.mode {
             PlayerMode::Emby => (self.emby.url.clone(), self.emby.user.clone(), String::new()),
             PlayerMode::Squeeze => (self.squeeze.url.clone(), self.squeeze.user.clone(), self.squeeze.password.clone()),
@@ -99,7 +155,7 @@ impl App {
         }
         self.browser.form_status = status;
         self.pl.signing_in = true;
-        self.set_tab(Tab::Browse);
+        self.set_tab(Tab::Library(0));
         self.pl.scroll = 0;
         // Typing starts in the first empty field. (A Logitech Media
         // Server usually has no user name or password.)
@@ -139,7 +195,8 @@ impl App {
 
     /// Asks the library for a list. Returns the request's ticket.
     fn request_library(&mut self, request: Request, wanted: Wanted) -> Option<u64> {
-        let ticket = self.library.as_mut()?.send(Job::List(request));
+        let section = self.section_id();
+        let ticket = self.library.as_mut()?.send(Job::List(section, request));
         self.library_jobs.insert(ticket, wanted);
         Some(ticket)
     }
@@ -155,21 +212,23 @@ impl App {
                         ServerConfig::Emby(config) => self.emby = config,
                         ServerConfig::Squeeze(config) => self.squeeze = config,
                     }
-                    self.browser = Browser::default();
                     self.connect_library();
                     self.show_message(format!("signed in to {}", self.mode.name()));
                 }
                 (Wanted::SignIn, Err(err)) => self.browser.form_status = format!("{err:#}"),
                 (_, Err(err)) if err.is::<SignedOut>() => self.show_sign_in("Please sign in again".to_string()),
+                (Wanted::Sections, Ok(Reply::Sections(sections))) => self.set_libraries(sections),
+                (Wanted::Sections, Err(err)) => self.show_error(format!("{}: {err:#}", self.mode.name())),
                 (Wanted::List, reply) => {
-                    let level = self.browser.level_mut();
-                    if level.pending != Some(ticket) {
+                    // The list may be for a library that isn't showing now.
+                    let waiting = std::iter::once(&mut self.browser).chain(self.shelved.iter_mut());
+                    let Some(level) = waiting.map(|b| b.level_mut()).find(|level| level.pending == Some(ticket)) else {
                         continue; // the browser has moved on
-                    }
+                    };
                     level.pending = None;
                     match reply {
                         Ok(Reply::Items(items)) => level.items = items,
-                        Ok(Reply::SignedIn(_)) => {}
+                        Ok(_) => {}
                         Err(err) => self.show_error(format!("{}: {err:#}", self.mode.name())),
                     }
                 }
@@ -178,7 +237,7 @@ impl App {
                     self.show_message(format!("added {added} track(s) to the playlist"));
                 }
                 (Wanted::Queue, Err(err)) => self.show_error(format!("{}: {err:#}", self.mode.name())),
-                (Wanted::Queue | Wanted::SignIn, Ok(_)) => {}
+                (Wanted::Queue | Wanted::SignIn | Wanted::Sections, Ok(_)) => {}
             }
         }
         self.pl.scroll_to(self.pl.scroll as isize, self.pl_rows());
@@ -282,7 +341,7 @@ impl App {
     /// library to the playlist. On the Queue tab, it goes to the library.
     pub(super) fn add_from_library(&mut self) {
         if self.pl.tab == Some(Tab::Queue) || self.pl.signing_in {
-            return self.set_tab(Tab::Browse);
+            return self.set_tab(Tab::Library(self.library_tab));
         }
         let level = self.browser.level();
         let Some(item) = level.selected.and_then(|i| level.items.get(i)).cloned() else {
@@ -295,6 +354,7 @@ impl App {
             }
             ItemKind::Album => Request::Tracks { album: item.id },
             ItemKind::Artist => Request::ArtistTracks { artist: item.id },
+            ItemKind::Genre => Request::GenreTracks { genre: item.id },
             ItemKind::Folder => return self.show_message(format!("open {} to add from it", item.title.to_lowercase())),
         };
         self.request_library(request, Wanted::Queue);

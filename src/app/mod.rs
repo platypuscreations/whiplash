@@ -328,8 +328,14 @@ pub struct App {
     playlist: Playlist,
     /// The other modes' playlists, kept while they're not in use.
     parked: std::collections::HashMap<PlayerMode, Playlist>,
-    /// The music server's library, in the playlist window.
+    /// The browser for the library tab showing in the playlist window (or
+    /// last shown, while the Queue is). Every library tab has its own: the
+    /// others wait in `shelved`, by tab, where this one's place is empty.
     browser: Browser,
+    shelved: Vec<Browser>,
+    library_tab: usize,
+    /// The server's libraries, one for each tab; none if it has just one.
+    sections: Vec<crate::library::Section>,
     emby: EmbyConfig,
     squeeze: SqueezeConfig,
     /// Talks to the mode's music server; none for local files.
@@ -467,6 +473,9 @@ impl App {
             playlist: Playlist::default(),
             parked: std::collections::HashMap::new(),
             browser: Browser::default(),
+            shelved: vec![Browser::default()],
+            library_tab: 0,
+            sections: Vec::new(),
             emby: config.emby.clone(),
             squeeze: config.squeeze.clone(),
             library: None,
@@ -667,7 +676,7 @@ impl App {
         if let (Some(info), Some(index)) = (self.player.info(), self.playlist.current_index()) {
             let id = self.playlist.entries()[index].id;
             self.playlist.set_details(id, info.title.clone(), info.duration);
-            if self.pl.tab != Some(playlist_window::Tab::Browse) {
+            if !self.pl.tab.is_some_and(playlist_window::Tab::is_library) {
                 self.pl.reveal(index, self.playlist.len());
             }
         }
@@ -684,7 +693,7 @@ impl App {
         if self.playlist.is_empty() && self.mode != PlayerMode::Local {
             // There's nothing to play yet: show the library to choose from.
             self.set_playlist_open(true);
-            self.set_tab(playlist_window::Tab::Browse);
+            self.set_tab(playlist_window::Tab::Library(self.library_tab));
             self.show_message("choose music in the playlist window".to_string());
         } else if self.playlist.is_empty() {
             self.open_dialog(dialogs::Purpose::PlayFiles);

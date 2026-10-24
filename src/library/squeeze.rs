@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use serde_json::{Value, json};
 
-use super::{Item, ItemKind, Request, Server, ServerConfig, request_error};
+use super::{Item, ItemKind, Request, Section, Server, ServerConfig, request_error};
 use crate::config::SqueezeConfig;
 
 /// How many entries to ask for: everything, for any library short of
@@ -26,6 +26,8 @@ const SEARCH_LIMIT: u32 = 100;
 pub struct Squeeze {
     config: SqueezeConfig,
     agent: ureq::Agent,
+    /// The virtual library being asked about (see `list`), if just one.
+    section: Option<String>,
 }
 
 /// The address a track's file downloads from.
@@ -48,7 +50,7 @@ impl Squeeze {
             .timeout_connect(Duration::from_secs(5))
             .timeout_read(Duration::from_secs(30))
             .build();
-        Squeeze { config, agent }
+        Squeeze { config, agent, section: None }
     }
 
     /// Sends a command and returns the answer's `result`.
@@ -72,6 +74,9 @@ impl Squeeze {
     fn list_of(&self, command: &str, filters: &[String]) -> Result<Vec<Value>> {
         let mut line = vec![json!(command), json!(0), json!(ALL)];
         line.extend(filters.iter().map(|f| json!(f)));
+        if let Some(section) = &self.section {
+            line.push(json!(format!("library_id:{section}")));
+        }
         Ok(loop_of(&self.command(Value::Array(line))?, command))
     }
 }
@@ -89,7 +94,15 @@ impl Server for Squeeze {
         Ok(ServerConfig::Squeeze(self.config.clone()))
     }
 
-    fn list(&mut self, request: &Request) -> Result<Vec<Item>> {
+    /// The server's virtual libraries, if any have been set up (by a
+    /// plugin, say). Without them, everything is one library.
+    fn sections(&mut self) -> Result<Vec<Section>> {
+        self.section = None;
+        Ok(sections_of(&self.command(json!(["libraries", 0, ALL]))?))
+    }
+
+    fn list(&mut self, section: Option<&str>, request: &Request) -> Result<Vec<Item>> {
+        self.section = section.map(str::to_string);
         let f = |filter: &str| filter.to_string();
         Ok(match request {
             Request::Artists => self.list_of("artists", &[])?.iter().map(|a| artist(a, "")).collect(),
@@ -107,6 +120,15 @@ impl Server for Squeeze {
             }
             Request::ArtistTracks { artist } => {
                 let found = self.list_of("titles", &[format!("artist_id:{artist}"), f("tags:ad"), f("sort:albumtrack")])?;
+                found.iter().map(track).collect()
+            }
+            Request::Genres => self.list_of("genres", &[])?.iter().map(genre).collect(),
+            Request::GenreAlbums { genre } => {
+                let found = self.list_of("albums", &[format!("genre_id:{genre}"), f("tags:lay"), f("sort:artflow")])?;
+                found.iter().map(|a| album(a, text(a, "artist"))).collect()
+            }
+            Request::GenreTracks { genre } => {
+                let found = self.list_of("titles", &[format!("genre_id:{genre}"), f("tags:ad"), f("sort:albumtrack")])?;
                 found.iter().map(track).collect()
             }
             Request::Search(text) => {
@@ -133,6 +155,15 @@ fn loop_of(result: &Value, command: &str) -> Vec<Value> {
     result.get(&name).and_then(Value::as_array).cloned().unwrap_or_default()
 }
 
+/// The virtual libraries in an answer to "libraries".
+fn sections_of(result: &Value) -> Vec<Section> {
+    let found = result.get("folder_loop").and_then(Value::as_array).cloned().unwrap_or_default();
+    found
+        .iter()
+        .filter_map(|library| Some(Section { id: text(library, "id")?, name: text(library, "name")? }))
+        .collect()
+}
+
 /// A field as text, whether the server sent text or a number.
 fn text(entry: &Value, field: &str) -> Option<String> {
     match entry.get(field)? {
@@ -148,6 +179,16 @@ fn number(entry: &Value, field: &str) -> Option<f64> {
         Value::Number(number) => number.as_f64(),
         Value::String(text) => text.parse().ok(),
         _ => None,
+    }
+}
+
+fn genre(entry: &Value) -> Item {
+    Item {
+        kind: ItemKind::Genre,
+        id: text(entry, "id").unwrap_or_default(),
+        title: text(entry, "genre").unwrap_or_default(),
+        detail: String::new(),
+        duration: None,
     }
 }
 
@@ -217,6 +258,22 @@ mod tests {
     }
 
     #[test]
+    fn genres() {
+        let result = json!({"count": 2, "genres_loop": [{"genre": "Rock", "id": 127}, {"id": "128", "genre": "Jazz"}]});
+        let items: Vec<Item> = loop_of(&result, "genres").iter().map(genre).collect();
+        assert_eq!(titles(&items), [("Rock", ""), ("Jazz", "")]);
+        assert_eq!(items[0].request(), Some(Request::GenreAlbums { genre: "127".into() }));
+    }
+
+    #[test]
+    fn virtual_libraries() {
+        let result = json!({"folder_loop": [{"id": "a1b2", "name": "Music"}, {"id": 7, "name": "Audiobooks"}, {"id": "x"}]});
+        let sections = sections_of(&result);
+        assert_eq!(sections, [Section { id: "a1b2".into(), name: "Music".into() }, Section { id: "7".into(), name: "Audiobooks".into() }]);
+        assert!(sections_of(&json!({})).is_empty());
+    }
+
+    #[test]
     fn passwords_go_in_a_header() {
         let mut config = SqueezeConfig { url: "http://music:9000".into(), ..SqueezeConfig::default() };
         assert_eq!(authorization(&config), None);
@@ -238,7 +295,7 @@ mod tests {
         assert_eq!(squeeze.sign_in("luke", "wrong").err().map(|e| e.to_string()).as_deref(), Some("wrong user name or password"));
         let Ok(ServerConfig::Squeeze(config)) = squeeze.sign_in("luke", "secret") else { panic!("didn't sign in") };
         assert_eq!(config.password, "secret");
-        let artists = squeeze.list(&Request::Artists).unwrap();
+        let artists = squeeze.list(None, &Request::Artists).unwrap();
         assert_eq!(titles(&artists), [("Radiohead", "")]);
         assert_eq!(artists[0].request(), Some(Request::Albums { artist: Some("3".into()) }));
     }
@@ -266,14 +323,27 @@ mod server_tests {
         let mut squeeze = Squeeze::new(SqueezeConfig { url, ..SqueezeConfig::default() });
         let Ok(ServerConfig::Squeeze(config)) = squeeze.sign_in(user, password) else { panic!("didn't connect") };
 
-        let artists = squeeze.list(&Request::Artists).unwrap();
+        let sections = squeeze.sections().unwrap();
+        println!("virtual libraries: {:?}", sections.iter().map(|s| &s.name).collect::<Vec<_>>());
+        for section in &sections {
+            let artists = squeeze.list(Some(&section.id), &Request::Artists).unwrap();
+            let albums = squeeze.list(Some(&section.id), &Request::Albums { artist: None }).unwrap();
+            let genres = squeeze.list(Some(&section.id), &Request::Genres).unwrap();
+            println!("  {}: {} artists, {} albums, {} genres", section.name, artists.len(), albums.len(), genres.len());
+        }
+        let artists = squeeze.list(None, &Request::Artists).unwrap();
         println!("{} artists, starting with {:?}", artists.len(), artists.first().map(|a| &a.title));
-        let albums = squeeze.list(&artists[0].request().unwrap()).unwrap();
+        let albums = squeeze.list(None, &artists[0].request().unwrap()).unwrap();
         println!("{}: {} albums", artists[0].title, albums.len());
-        let tracks = squeeze.list(&albums[0].request().unwrap()).unwrap();
+        let tracks = squeeze.list(None, &albums[0].request().unwrap()).unwrap();
         println!("{}: {} tracks", albums[0].title, tracks.len());
-        let found = squeeze.list(&Request::Search(artists[0].title.clone())).unwrap();
+        let found = squeeze.list(None, &Request::Search(artists[0].title.clone())).unwrap();
         println!("searching for {:?}: {} results", artists[0].title, found.len());
+        let genres = squeeze.list(None, &Request::Genres).unwrap();
+        let in_genre = squeeze.list(None, &genres[0].request().unwrap()).unwrap();
+        let genre_tracks = squeeze.list(None, &Request::GenreTracks { genre: genres[0].id.clone() }).unwrap();
+        println!("{} genres; {}: {} albums, {} tracks", genres.len(), genres[0].title, in_genre.len(), genre_tracks.len());
+        assert!(!in_genre.is_empty() && !genre_tracks.is_empty());
 
         let track = &tracks[0];
         let source =

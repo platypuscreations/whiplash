@@ -84,6 +84,8 @@ pub struct EmbyConfig {
     /// A made-up id for this copy of Whiplash, chosen once: Emby keeps
     /// track of the devices signed in to it.
     pub device_id: String,
+    /// The library tab used last.
+    pub library: String,
 }
 
 /// A Logitech Media Server. It has no signing in: if it's protected by a
@@ -96,6 +98,8 @@ pub struct SqueezeConfig {
     pub url: String,
     pub user: String,
     pub password: String,
+    /// The library tab used last.
+    pub library: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

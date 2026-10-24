@@ -81,6 +81,15 @@ pub fn top_level() -> Vec<Item> {
     vec![Item::folder("Artists", "artists"), Item::folder("Albums", "albums"), Item::folder("Genres", "genres")]
 }
 
+/// One of the libraries a server keeps separately, such as Emby's
+/// "Music" and "Audio books".
+#[derive(Clone, Debug, PartialEq)]
+pub struct Section {
+    /// The server's id for it.
+    pub id: String,
+    pub name: String,
+}
+
 /// Which server, and how to reach it.
 #[derive(Clone)]
 pub enum ServerConfig {
@@ -91,13 +100,18 @@ pub enum ServerConfig {
 /// What the helper thread is asked to do.
 pub enum Job {
     SignIn { user: String, password: String },
-    List(Request),
+    /// The server's music libraries.
+    Sections,
+    /// A list from one library (by its id), or from everything.
+    List(Option<String>, Request),
 }
 
 /// What it found out.
 pub enum Reply {
     /// Signed in: the server's settings to keep from now on.
     SignedIn(ServerConfig),
+    /// The server's music libraries; none if it keeps just one.
+    Sections(Vec<Section>),
     Items(Vec<Item>),
 }
 
@@ -116,7 +130,9 @@ impl std::error::Error for SignedOut {}
 /// A music server, as the helper thread talks to it.
 trait Server: Send {
     fn sign_in(&mut self, user: &str, password: &str) -> Result<ServerConfig>;
-    fn list(&mut self, request: &Request) -> Result<Vec<Item>>;
+    fn sections(&mut self) -> Result<Vec<Section>>;
+    /// A list from library `section`, or from everything without one.
+    fn list(&mut self, section: Option<&str>, request: &Request) -> Result<Vec<Item>>;
 }
 
 /// The app's side of the helper thread.
@@ -143,7 +159,8 @@ impl Library {
                 for (ticket, job) in incoming {
                     let reply = match job {
                         Job::SignIn { user, password } => server.sign_in(&user, &password).map(Reply::SignedIn),
-                        Job::List(request) => server.list(&request).map(Reply::Items),
+                        Job::Sections => server.sections().map(Reply::Sections),
+                        Job::List(section, request) => server.list(section.as_deref(), &request).map(Reply::Items),
                     };
                     if outgoing.send((ticket, reply)).is_err() {
                         break;

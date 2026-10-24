@@ -96,13 +96,15 @@ pub fn render(skin: &Skin, out: &Path, scale: u32) -> Result<()> {
     for (i, (name, year)) in [("Night Drive", "2019"), ("Neon Rain", "2021"), ("Afterglow", "2024")].into_iter().enumerate() {
         level.items.push(Item { kind: ItemKind::Album, id: i.to_string(), title: name.into(), detail: year.into(), duration: None });
     }
-    let view = PlaylistView { focused: true, tab: Some(Tab::Browse), ..PlaylistView::default() };
+    // An Emby server with two libraries: Music, and Audio books.
+    let libraries = vec!["Music".to_string(), "Audio books".to_string()];
+    let view = PlaylistView { focused: true, tab: Some(Tab::Library(0)), libraries, ..PlaylistView::default() };
     pieces.push((playlist_window(skin, &view, &playlist, &browser, &playing, scale), left, y));
     browser.search.insert("neon");
     browser.focus = Some(Field::Search);
-    let queue = PlaylistView { tab: Some(Tab::Queue), ..view };
+    let queue = PlaylistView { tab: Some(Tab::Queue), ..view.clone() };
     pieces.push((playlist_window(skin, &queue, &playlist, &browser, &playing, scale), right, y));
-    let view = PlaylistView { tab: Some(Tab::Browse), ..view };
+    let view = PlaylistView { tab: Some(Tab::Library(0)), ..view };
     y += view.height + GAP;
     // Search results, with another search being typed.
     let mut searched = Browser::default();
@@ -125,7 +127,8 @@ pub fn render(skin: &Skin, out: &Path, scale: u32) -> Result<()> {
     }
     signing_in.focus = Some(Field::Form(2));
     signing_in.form_status = "Signing in...".into();
-    let form = PlaylistView { signing_in: true, ..view };
+    // Signed out, the libraries aren't known: there's one tab.
+    let form = PlaylistView { signing_in: true, libraries: PlaylistView::default().libraries, ..view };
     pieces.push((playlist_window(skin, &form, &playlist, &signing_in, &paused, scale), right, y));
     y += view.height + GAP;
 

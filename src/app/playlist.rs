@@ -99,7 +99,7 @@ impl App {
             Hit::MenuItem(_) | Hit::Nothing => {}
             Hit::Track(index) => self.track_pressed(index),
             Hit::BrowseRow(row) => self.browse_row_pressed(row),
-            Hit::BelowTracks if self.pl.tab == Some(Tab::Browse) => self.browser.level_mut().selected = None,
+            Hit::BelowTracks if self.pl.tab.is_some_and(Tab::is_library) => self.browser.level_mut().selected = None,
             Hit::BelowTracks => self.playlist.select_all(false),
             Hit::Tab(tab) => self.set_tab(tab),
             Hit::SearchBox | Hit::FormField(_) => {}
@@ -268,7 +268,7 @@ impl App {
     /// Playlist keys: arrows move the selection, Enter plays, Delete
     /// removes, Ctrl/Cmd+A selects all. Returns false for other keys.
     pub(super) fn pl_key_pressed(&mut self, key: &Key) -> bool {
-        if self.pl.tab == Some(Tab::Browse) {
+        if self.pl.tab.is_some_and(Tab::is_library) {
             return self.browse_key_pressed(key);
         }
         let len = self.playlist.len();

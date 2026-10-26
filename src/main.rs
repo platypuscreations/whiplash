@@ -21,6 +21,7 @@ mod eqf;
 mod library;
 mod location;
 mod metadata;
+mod net;
 mod playlist;
 mod playlist_file;
 mod preview;

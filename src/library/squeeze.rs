@@ -61,7 +61,7 @@ impl Squeeze {
         if let Some(authorization) = authorization(&self.config) {
             request = request.set("Authorization", &authorization);
         }
-        let response = request.send_string(&body).map_err(|err| match err {
+        let response = crate::net::send(request, Some(&body)).map_err(|err| match err {
             ureq::Error::Status(401, _) => anyhow::anyhow!("wrong user name or password"),
             err => request_error(err),
         })?;

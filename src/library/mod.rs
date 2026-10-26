@@ -206,8 +206,7 @@ fn request_error(err: ureq::Error) -> anyhow::Error {
         ureq::Error::Status(401, _) => SignedOut.into(),
         ureq::Error::Status(code, response) => anyhow::anyhow!("the server said {code} {}", response.status_text()),
         ureq::Error::Transport(transport) => {
-            let detail = transport.message().map(|m| format!(": {m}")).unwrap_or_default();
-            anyhow::anyhow!("couldn't reach the server ({}{detail})", transport.kind())
+            anyhow::anyhow!("couldn't reach the server: {}", crate::net::problem(&transport))
         }
     }
 }

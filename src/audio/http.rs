@@ -135,15 +135,11 @@ fn request(agent: &ureq::Agent, url: &str, authorization: Option<&str>, from: u6
     if let Some(authorization) = authorization {
         request = request.set("Authorization", authorization);
     }
-    let result = request.call();
-    result.map_err(|err| match err {
+    crate::net::send(request, None).map_err(|err| match err {
         ureq::Error::Status(code, response) => {
             io::Error::other(format!("the server said {code} {}", response.status_text()))
         }
-        ureq::Error::Transport(transport) => {
-            let detail = transport.message().map(|m| format!(": {m}")).unwrap_or_default();
-            io::Error::other(format!("{}{detail}", transport.kind()))
-        }
+        ureq::Error::Transport(transport) => io::Error::other(crate::net::problem(&transport)),
     })
 }
 

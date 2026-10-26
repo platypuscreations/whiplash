@@ -100,7 +100,7 @@ impl Emby {
         {
             request = request.query("ParentId", section);
         }
-        let response = request.call().map_err(request_error)?;
+        let response = crate::net::send(request, None).map_err(request_error)?;
         parse_items(response.into_reader())
     }
 
@@ -113,13 +113,12 @@ impl Emby {
 impl Server for Emby {
     fn sign_in(&mut self, user: &str, password: &str) -> Result<ServerConfig> {
         let body = serde_json::json!({ "Username": user, "Pw": password }).to_string();
-        let response = self
+        let request = self
             .agent
             .post(&format!("{}/Users/AuthenticateByName", self.config.url))
             .set("X-Emby-Authorization", &self.authorization())
-            .set("Content-Type", "application/json")
-            .send_string(&body)
-            .map_err(|err| match err {
+            .set("Content-Type", "application/json");
+        let response = crate::net::send(request, Some(&body)).map_err(|err| match err {
                 ureq::Error::Status(401, _) => anyhow::anyhow!("wrong user name or password"),
                 err => request_error(err),
             })?;

@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering::Relaxed;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -16,6 +17,15 @@ use ringbuf::traits::{Consumer, Observer};
 
 use super::equalizer::Equalizer;
 use super::{PlaybackShared, Settings};
+
+/// Errors this soon after a stream opens are passing hiccups. On Linux,
+/// PulseAudio's ALSA layer sometimes answers "I/O error" when asked how
+/// much room there is, about 5 ms after a stream opens; measured, no sound
+/// is lost, and the stream carries on.
+const SETTLING: Duration = Duration::from_millis(250);
+/// After that, an error is reported at most this often: one that keeps
+/// happening could otherwise come many times a second.
+const REPORT_EVERY: Duration = Duration::from_secs(1);
 
 /// An open stream to the sound device. Sound stops when this is dropped.
 pub struct Output {
@@ -125,6 +135,90 @@ where
         }
     };
 
-    let on_error = |err| eprintln!("audio output error: {err}");
+    let mut errors = ErrorReport::new(Instant::now());
+    let on_error = move |err: cpal::Error| errors.error(&err.to_string(), Instant::now());
     Ok(device.build_output_stream(*config,callback, on_error, None)?)
+}
+
+/// How one stream reports the errors cpal passes on: to the console and
+/// to `whiplash.log`.
+struct ErrorReport {
+    opened: Instant,
+    /// A hiccup as the stream opened has been noted.
+    noted_settling: bool,
+    reported: Option<Instant>,
+    /// Errors since the last report, not reported yet.
+    held_back: u32,
+}
+
+/// What to do with an error.
+#[derive(Debug, PartialEq)]
+enum Report {
+    /// Only note it in the log: a hiccup as the stream opened.
+    Note(String),
+    /// Print it and log it.
+    Error(String),
+    Nothing,
+}
+
+impl ErrorReport {
+    fn new(opened: Instant) -> ErrorReport {
+        ErrorReport { opened, noted_settling: false, reported: None, held_back: 0 }
+    }
+
+    fn error(&mut self, err: &str, now: Instant) {
+        match self.judge(err, now) {
+            Report::Note(text) => crate::log::write(&text),
+            Report::Error(text) => {
+                eprintln!("{text}");
+                crate::log::write(&text);
+            }
+            Report::Nothing => {}
+        }
+    }
+
+    fn judge(&mut self, err: &str, now: Instant) -> Report {
+        if now.duration_since(self.opened) < SETTLING {
+            return match std::mem::replace(&mut self.noted_settling, true) {
+                false => Report::Note(format!("sound device hiccup as playback started (it carries on): {err}")),
+                true => Report::Nothing,
+            };
+        }
+        if self.reported.is_some_and(|at| now.duration_since(at) < REPORT_EVERY) {
+            self.held_back += 1;
+            return Report::Nothing;
+        }
+        self.reported = Some(now);
+        let more = match std::mem::take(&mut self.held_back) {
+            0 => String::new(),
+            n => format!(" ({n} more since the last report)"),
+        };
+        Report::Error(format!("audio output error: {err}{more}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hiccups_as_a_stream_opens_are_only_noted() {
+        let opened = Instant::now();
+        let at = |ms: u64| opened + Duration::from_millis(ms);
+        let mut errors = ErrorReport::new(opened);
+        assert!(matches!(errors.judge("I/O error", at(5)), Report::Note(_)));
+        assert_eq!(errors.judge("I/O error", at(6)), Report::Nothing);
+    }
+
+    #[test]
+    fn later_errors_are_reported_but_not_too_often() {
+        let opened = Instant::now();
+        let at = |ms: u64| opened + Duration::from_millis(ms);
+        let mut errors = ErrorReport::new(opened);
+        assert_eq!(errors.judge("stuck", at(2000)), Report::Error("audio output error: stuck".into()));
+        assert_eq!(errors.judge("stuck", at(2100)), Report::Nothing);
+        assert_eq!(errors.judge("stuck", at(2200)), Report::Nothing);
+        let later = errors.judge("stuck", at(3100));
+        assert_eq!(later, Report::Error("audio output error: stuck (2 more since the last report)".into()));
+    }
 }

@@ -16,8 +16,6 @@ mod playlist;
 mod tooltips;
 mod windows;
 
-use std::fs;
-use std::io::Write;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -147,27 +145,6 @@ fn message_time(text: &str) -> Duration {
     } else {
         MESSAGE_TIME
     }
-}
-
-/// The time now, for the log: like "2026-10-18 21:45:03 UTC".
-fn log_time() -> String {
-    utc_time(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()))
-}
-
-/// `seconds` since 1970 as a date and time in UTC.
-fn utc_time(seconds: u64) -> String {
-    let (days, time) = ((seconds / 86_400) as i64, seconds % 86_400);
-    // Days since 1970 to a calendar date (Howard Hinnant's civil_from_days).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let day_of_era = z - era * 146_097;
-    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let mp = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!("{year}-{month:02}-{day:02} {:02}:{:02}:{:02} UTC", time / 3600, time / 60 % 60, time % 60)
 }
 
 /// How many screen pixels each skin pixel becomes: the zoom (2 in double
@@ -783,12 +760,7 @@ impl App {
     /// to `whiplash.log` in the settings folder, so it can be read later
     /// in full (a release build on Windows has no console to print it to).
     fn show_error(&mut self, text: String) {
-        if let Some(folder) = config::folder() {
-            let line = format!("{} {text}\n", log_time());
-            let _ = fs::create_dir_all(&folder).and_then(|()| {
-                fs::OpenOptions::new().create(true).append(true).open(folder.join("whiplash.log"))?.write_all(line.as_bytes())
-            });
-        }
+        crate::log::write(&text);
         self.show_message(text);
     }
 
@@ -1619,13 +1591,6 @@ fn format_hz(hz: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn utc_times() {
-        assert_eq!(super::utc_time(0), "1970-01-01 00:00:00 UTC");
-        assert_eq!(super::utc_time(951_868_799), "2000-02-29 23:59:59 UTC");
-        assert_eq!(super::utc_time(1_792_359_903), "2026-10-18 21:45:03 UTC");
-    }
-
     use super::*;
 
     #[test]

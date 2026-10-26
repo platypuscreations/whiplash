@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use super::{Item, ItemKind, Request, Server, ServerConfig, SignedOut, request_error};
+use super::{Item, ItemKind, Request, Section, Server, ServerConfig, SignedOut, request_error};
 use crate::config::EmbyConfig;
 
 /// At most this many search results of each kind.
@@ -16,6 +16,8 @@ const SEARCH_LIMIT: &str = "100";
 pub struct Emby {
     config: EmbyConfig,
     agent: ureq::Agent,
+    /// The library being asked about (see `list`), if just one.
+    section: Option<String>,
 }
 
 /// An entry as Emby describes it; only what we use.
@@ -31,6 +33,8 @@ struct EmbyItem {
     artists: Vec<String>,
     /// Length in ticks of 100 nanoseconds.
     run_time_ticks: Option<u64>,
+    /// What a library holds, such as "music" or "movies".
+    collection_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -64,7 +68,7 @@ impl Emby {
             .timeout_connect(Duration::from_secs(5))
             .timeout_read(Duration::from_secs(30))
             .build();
-        Emby { config, agent }
+        Emby { config, agent, section: None }
     }
 
     /// Who's asking, as Emby wants every app to say.
@@ -88,6 +92,13 @@ impl Emby {
         let common = [("Recursive", "true"), ("EnableImages", "false"), ("EnableUserData", "false")];
         for (name, value) in query.iter().chain(&common) {
             request = request.query(name, value);
+        }
+        // Only from the one library, unless the question is already about
+        // something inside it (an album's tracks).
+        if let Some(section) = &self.section
+            && !query.iter().any(|(name, _)| *name == "ParentId")
+        {
+            request = request.query("ParentId", section);
         }
         let response = request.call().map_err(request_error)?;
         parse_items(response.into_reader())
@@ -120,7 +131,15 @@ impl Server for Emby {
         Ok(ServerConfig::Emby(self.config.clone()))
     }
 
-    fn list(&mut self, request: &Request) -> Result<Vec<Item>> {
+    /// The user's music and audiobook libraries.
+    fn sections(&mut self) -> Result<Vec<Section>> {
+        self.section = None;
+        let views = self.get(&format!("/Users/{}/Views", self.config.user_id), &[])?;
+        Ok(audio_sections(views))
+    }
+
+    fn list(&mut self, section: Option<&str>, request: &Request) -> Result<Vec<Item>> {
+        self.section = section.map(str::to_string);
         let user_id = self.config.user_id.clone();
         Ok(match request {
             Request::Artists => {
@@ -148,6 +167,23 @@ impl Server for Emby {
                 ];
                 self.items(&query)?.into_iter().map(track).collect()
             }
+            Request::Genres => {
+                let found = self.get("/MusicGenres", &[("UserId", &user_id), ("SortBy", "SortName")])?;
+                found.into_iter().map(genre).collect()
+            }
+            Request::GenreAlbums { genre } => {
+                let query = [("IncludeItemTypes", "MusicAlbum"), ("GenreIds", genre.as_str()), ("SortBy", "AlbumArtist,SortName")];
+                let found = self.items(&query)?;
+                found.into_iter().map(|item| album(item, |i| i.album_artist.clone().unwrap_or_default())).collect()
+            }
+            Request::GenreTracks { genre } => {
+                let query = [
+                    ("GenreIds", genre.as_str()),
+                    ("IncludeItemTypes", "Audio"),
+                    ("SortBy", "AlbumArtist,Album,ParentIndexNumber,IndexNumber"),
+                ];
+                self.items(&query)?.into_iter().map(track).collect()
+            }
             Request::Search(text) => {
                 let query = [("SearchTerm", text.as_str()), ("IncludeItemTypes", "MusicArtist,MusicAlbum,Audio"), ("Limit", SEARCH_LIMIT)];
                 search_results(self.items(&query)?)
@@ -159,6 +195,19 @@ impl Server for Emby {
 fn parse_items(reader: impl Read) -> Result<Vec<EmbyItem>> {
     let list: ItemList = serde_json::from_reader(reader).context("the server's answer didn't make sense")?;
     Ok(list.items)
+}
+
+/// The libraries that hold music or audiobooks, of all a user's.
+fn audio_sections(views: Vec<EmbyItem>) -> Vec<Section> {
+    views
+        .into_iter()
+        .filter(|view| matches!(view.collection_type.as_deref(), Some("music" | "audiobooks")))
+        .map(|view| Section { id: view.id, name: view.name })
+        .collect()
+}
+
+fn genre(item: EmbyItem) -> Item {
+    Item { kind: ItemKind::Genre, id: item.id, title: item.name, detail: String::new(), duration: None }
 }
 
 fn artist(item: EmbyItem, detail: &str) -> Item {
@@ -224,6 +273,14 @@ mod tests {
     }
 
     #[test]
+    fn genres() {
+        let found = r#"{"Items":[{"Name":"Alt. Rock","Id":"30661","Type":"MusicGenre"},{"Name":"Rock","Id":"29872","Type":"MusicGenre"}]}"#;
+        let items: Vec<Item> = parse_items(found.as_bytes()).unwrap().into_iter().map(genre).collect();
+        assert_eq!(titles(&items), [("Alt. Rock", ""), ("Rock", "")]);
+        assert_eq!(items[1].request(), Some(Request::GenreAlbums { genre: "29872".into() }));
+    }
+
+    #[test]
     fn search_results_by_kind() {
         let found = r#"{"Items":[
             {"Name":"Airbag","Id":"1","Type":"Audio","Artists":["Radiohead"]},
@@ -246,6 +303,16 @@ mod tests {
                 "/Users/AuthenticateByName" if line.starts_with("POST") => {
                     (200, r#"{"User":{"Id":"u1"},"AccessToken":"t1"}"#.to_string())
                 }
+                path if path.starts_with("/Users/u1/Views?") && signed_in => (200, VIEWS.to_string()),
+                // Asked within the music library: only its own albums, and
+                // an album's tracks by the album alone.
+                path if path.starts_with("/Users/u1/Items?") && signed_in && path.contains("SearchTerm=kid") => {
+                    match path.contains("ParentId=m1") {
+                        true => (200, r#"{"Items":[{"Name":"Kid A","Id":"13","Type":"MusicAlbum"}]}"#.to_string()),
+                        false => (404, String::new()),
+                    }
+                }
+                path if path.starts_with("/Users/u1/Items?") && signed_in && path.contains("ParentId=m1") => (404, String::new()),
                 path if path.starts_with("/Users/u1/Items?") && signed_in => {
                     let tracks = path.contains("ParentId=12") && path.contains("IncludeItemTypes=Audio");
                     let found = path.contains("SearchTerm=ok+computer") || path.contains("SearchTerm=ok%20computer");
@@ -259,17 +326,38 @@ mod tests {
             }
         });
         let mut emby = Emby::new(EmbyConfig { url, device_id: "d1".into(), ..EmbyConfig::default() });
-        assert!(emby.list(&Request::Artists).unwrap_err().is::<SignedOut>());
+        assert!(emby.list(None, &Request::Artists).unwrap_err().is::<SignedOut>());
         let Ok(ServerConfig::Emby(config)) = emby.sign_in("luke", "secret") else { panic!("didn't sign in") };
         assert_eq!((config.user.as_str(), config.user_id.as_str(), config.token.as_str()), ("luke", "u1", "t1"));
-        let tracks = emby.list(&Request::Tracks { album: "12".into() }).unwrap();
+        let tracks = emby.list(None, &Request::Tracks { album: "12".into() }).unwrap();
         assert_eq!(titles(&tracks), [("Radiohead - Airbag", "")]);
-        let found = emby.list(&Request::Search("ok computer".into())).unwrap();
+        let found = emby.list(None, &Request::Search("ok computer".into())).unwrap();
         assert_eq!(titles(&found), [("OK Computer", "album")]);
+
+        let sections = emby.sections().unwrap();
+        assert_eq!(sections, [Section { id: "m1".into(), name: "Music".into() }, Section { id: "b1".into(), name: "Audio books".into() }]);
+        let found = emby.list(Some("m1"), &Request::Search("kid".into())).unwrap();
+        assert_eq!(titles(&found), [("Kid A", "album")]);
+        let tracks = emby.list(Some("m1"), &Request::Tracks { album: "12".into() }).unwrap();
+        assert_eq!(titles(&tracks), [("Radiohead - Airbag", "")]);
 
         // A server that no longer takes the token means signing in again.
         let mut stale = Emby::new(EmbyConfig { token: "old".into(), ..config });
-        assert!(stale.list(&Request::Tracks { album: "12".into() }).unwrap_err().is::<SignedOut>());
+        assert!(stale.list(None, &Request::Tracks { album: "12".into() }).unwrap_err().is::<SignedOut>());
+    }
+
+    /// A user's libraries: music, audiobooks, and others that aren't audio.
+    const VIEWS: &str = r#"{"Items":[
+        {"Name":"Music","Id":"m1","CollectionType":"music"},
+        {"Name":"Movies","Id":"v1","CollectionType":"movies"},
+        {"Name":"Audio books","Id":"b1","CollectionType":"audiobooks"},
+        {"Name":"Mixed content","Id":"x1"}]}"#;
+
+    #[test]
+    fn only_audio_libraries() {
+        let sections = audio_sections(parse_items(VIEWS.as_bytes()).unwrap());
+        let names: Vec<&str> = sections.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["Music", "Audio books"]);
     }
 
     #[test]
@@ -303,14 +391,26 @@ mod server_tests {
         let mut emby = Emby::new(config);
         let Ok(ServerConfig::Emby(config)) = emby.sign_in(user, password) else { panic!("didn't sign in") };
 
-        let artists = emby.list(&Request::Artists).unwrap();
+        let sections = emby.sections().unwrap();
+        println!("libraries: {:?}", sections.iter().map(|s| &s.name).collect::<Vec<_>>());
+        for section in &sections {
+            let artists = emby.list(Some(&section.id), &Request::Artists).unwrap();
+            let albums = emby.list(Some(&section.id), &Request::Albums { artist: None }).unwrap();
+            println!("  {}: {} artists, {} albums", section.name, artists.len(), albums.len());
+        }
+        let artists = emby.list(None, &Request::Artists).unwrap();
         println!("{} artists, starting with {:?}", artists.len(), artists.first().map(|a| &a.title));
-        let albums = emby.list(&artists[0].request().unwrap()).unwrap();
+        let albums = emby.list(None, &artists[0].request().unwrap()).unwrap();
         println!("{}: {} albums", artists[0].title, albums.len());
-        let tracks = emby.list(&albums[0].request().unwrap()).unwrap();
+        let tracks = emby.list(None, &albums[0].request().unwrap()).unwrap();
         println!("{}: {} tracks", albums[0].title, tracks.len());
-        let found = emby.list(&Request::Search(artists[0].title.clone())).unwrap();
+        let found = emby.list(None, &Request::Search(artists[0].title.clone())).unwrap();
         println!("searching for {:?}: {} results", artists[0].title, found.len());
+        let genres = emby.list(None, &Request::Genres).unwrap();
+        let in_genre = emby.list(None, &genres[0].request().unwrap()).unwrap();
+        let genre_tracks = emby.list(None, &Request::GenreTracks { genre: genres[0].id.clone() }).unwrap();
+        println!("{} genres; {}: {} albums, {} tracks", genres.len(), genres[0].title, in_genre.len(), genre_tracks.len());
+        assert!(!in_genre.is_empty() && !genre_tracks.is_empty());
 
         let track = &tracks[0];
         let source = Source::Http { url: stream_url(&config, &track.id), authorization: None, title: track.title.clone() };

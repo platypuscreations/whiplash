@@ -187,7 +187,7 @@ Whiplash can play your music library from a server on your network instead of fr
 
 Each mode has its own playlist, kept between runs. Switching modes stops what's playing.
 
-In a server mode, the playlist window gets two tabs: **Browse** for the server's library and **Queue** for the playlist. The first time, Browse asks for the server's address and how to sign in:
+In a server mode, the playlist window gets tabs: one for each of the server's music libraries, and **Queue** for the playlist. An Emby server with separate Music and Audio books libraries shows `Music | Audio books | Queue`, and each tab browses and searches only its own library; anything added from any of them goes to the one Queue. A Logitech Media Server shows a single **Library** tab, unless it's been split into virtual libraries. Whiplash opens the library tab used last. The first time, the library tab asks for the server's address and how to sign in:
 
 - **Emby:** the address (such as `media:8096`), and your Emby user name and password. Whiplash keeps only the sign-in token Emby gives it, not the password.
 - **Squeeze:** the address (such as `music:9000`). Leave the user name and password empty unless the server is password-protected.
@@ -196,10 +196,10 @@ To change these later, choose **Server settings...** from the main menu.
 
 | Input | Action |
 |---|---|
-| Double-click Artists or Albums, an artist or an album | Open it |
+| Double-click Artists, Albums or Genres, an artist, album or genre | Open it (a genre opens to its albums) |
 | Click the top row (‹ ...), ← or Backspace | Go back up |
 | Double-click a track, Enter | Play the list it's in, starting with that track (replaces the playlist) |
-| Select, then ADD | Add the track, album or artist's tracks to the playlist |
+| Select, then ADD | Add the track, or all the tracks of the album, artist or genre, to the playlist |
 | Click the search box, Ctrl+F (Cmd+F) | Search; Enter searches, Esc clears |
 | Ctrl+V (Cmd+V) in the search box or sign-in form | Paste |
 

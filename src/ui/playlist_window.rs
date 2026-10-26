@@ -41,9 +41,11 @@ const SCROLL_HANDLE_HEIGHT: i32 = 18;
 const MIN_VISUALIZER_WIDTH: u32 = 350;
 pub const VISUALIZER_WIDTH: i32 = 72;
 const VISUALIZER_OFFSET: (i32, i32) = (2, 12);
-/// The tabs, in a music server mode.
+/// The tabs, in a music server mode. Each is as wide as its label needs,
+/// reckoning this many pixels a letter, plus a margin.
 const TAB_HEIGHT: i32 = 12;
-const TAB_WIDTH: i32 = 40;
+const TAB_LETTER: i32 = 5;
+const TAB_MARGIN: i32 = 10;
 /// The search box, below the tabs while browsing, and the sign-in form's
 /// fields, one below another.
 const FIELD_HEIGHT: i32 = 13;
@@ -52,20 +54,16 @@ const BUTTON_WIDTH: i32 = 44;
 /// What the list shows in a music server mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
-    /// The server's library.
-    Browse,
+    /// One of the server's libraries, by its place in
+    /// `PlaylistView::libraries`.
+    Library(usize),
     /// The playlist.
     Queue,
 }
 
 impl Tab {
-    const ALL: [Tab; 2] = [Tab::Browse, Tab::Queue];
-
-    fn label(self) -> &'static str {
-        match self {
-            Tab::Browse => "Browse",
-            Tab::Queue => "Queue",
-        }
+    pub fn is_library(self) -> bool {
+        matches!(self, Tab::Library(_))
     }
 }
 
@@ -161,6 +159,7 @@ impl MenuButton {
 }
 
 /// The playlist window's own state (the tracks live in `Playlist`).
+#[derive(Clone)]
 pub struct PlaylistView {
     pub width: u32,
     /// Height when not shaded.
@@ -174,6 +173,8 @@ pub struct PlaylistView {
     pub tab: Option<Tab>,
     /// The playlist's scroll position while the library shows.
     pub queue_scroll: usize,
+    /// The library tabs' names, in a music server mode.
+    pub libraries: Vec<String>,
     /// The Browse tab shows the form for signing in to the server, rather
     /// than the library.
     pub signing_in: bool,
@@ -194,6 +195,7 @@ impl Default for PlaylistView {
             scroll: 0,
             tab: None,
             queue_scroll: 0,
+            libraries: vec!["Library".to_string()],
             signing_in: false,
             focused: false,
             pressed: None,
@@ -228,7 +230,7 @@ impl PlaylistView {
             + match self.tab {
                 None => 0,
                 Some(Tab::Queue) => TAB_HEIGHT,
-                Some(Tab::Browse) => TAB_HEIGHT + FIELD_HEIGHT,
+                Some(Tab::Library(_)) => TAB_HEIGHT + FIELD_HEIGHT,
             }
     }
 
@@ -318,10 +320,29 @@ pub enum Hit {
 /// How many rows the list shown has: tracks, or the browser's rows.
 pub fn rows(view: &PlaylistView, playlist: &Playlist, browser: &Browser) -> usize {
     match view.tab {
-        Some(Tab::Browse) if view.signing_in => 0,
-        Some(Tab::Browse) => browser.rows(),
+        Some(Tab::Library(_)) if view.signing_in => 0,
+        Some(Tab::Library(_)) => browser.rows(),
         _ => playlist.len(),
     }
+}
+
+/// The tabs along the top of the list, in a music server mode: each with
+/// its label, left edge and width. They share out the list's width if
+/// there isn't room for them all.
+pub fn tab_layout(view: &PlaylistView) -> Vec<(Tab, &str, i32, i32)> {
+    let libraries = view.libraries.iter().enumerate().map(|(i, name)| (Tab::Library(i), name.as_str()));
+    let tabs: Vec<(Tab, &str)> = libraries.chain([(Tab::Queue, "Queue")]).collect();
+    let wanted: Vec<i32> = tabs.iter().map(|(_, label)| TAB_MARGIN + TAB_LETTER * label.chars().count() as i32).collect();
+    let (room, total) = (view.width as i32 - LEFT - RIGHT, wanted.iter().sum::<i32>());
+    let mut x = LEFT;
+    tabs.into_iter()
+        .zip(wanted)
+        .map(|((tab, label), width)| {
+            let width = if total > room { width * room / total } else { width };
+            x += width;
+            (tab, label, x - width, width)
+        })
+        .collect()
 }
 
 /// What's at (x, y). `row_count` is how many rows the list has (see `rows`).
@@ -382,10 +403,10 @@ pub fn hit_test(view: &PlaylistView, row_count: usize, x: i32, y: i32) -> Hit {
     if inside(LEFT, TOP, width - LEFT - RIGHT, height - TOP - BOTTOM) {
         if let Some(tab) = view.tab {
             if y < TOP + TAB_HEIGHT {
-                let column = (x - LEFT) / TAB_WIDTH;
-                return Tab::ALL.get(column as usize).map_or(Hit::Nothing, |&tab| Hit::Tab(tab));
+                let under = tab_layout(view).into_iter().find(|&(_, _, left, w)| x >= left && x < left + w);
+                return under.map_or(Hit::Nothing, |(tab, ..)| Hit::Tab(tab));
             }
-            if tab == Tab::Browse && view.signing_in {
+            if tab.is_library() && view.signing_in {
                 for field in 0..=FORM_FIELDS {
                     let (fx, fy, fw, fh) = field_box(width, field);
                     if inside(fx, fy, fw, fh) {
@@ -394,7 +415,7 @@ pub fn hit_test(view: &PlaylistView, row_count: usize, x: i32, y: i32) -> Hit {
                 }
                 return Hit::Nothing;
             }
-            if tab == Tab::Browse && y < TOP + TAB_HEIGHT + FIELD_HEIGHT {
+            if tab.is_library() && y < TOP + TAB_HEIGHT + FIELD_HEIGHT {
                 return Hit::SearchBox;
             }
         }
@@ -402,7 +423,7 @@ pub fn hit_test(view: &PlaylistView, row_count: usize, x: i32, y: i32) -> Hit {
         let index = view.scroll as i32 + row;
         let shown = row >= 0 && (row as usize) < view.visible_rows() && (index as usize) < row_count;
         return match (shown, view.tab) {
-            (true, Some(Tab::Browse)) => Hit::BrowseRow(index as usize),
+            (true, Some(Tab::Library(_))) => Hit::BrowseRow(index as usize),
             (true, _) => Hit::Track(index as usize),
             (false, _) => Hit::BelowTracks,
         };
@@ -485,8 +506,9 @@ fn draw_list_backgrounds(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, 
     if let Some(tab) = view.tab {
         // The tab showing is highlighted like a selected row, and joined
         // to a line under the tabs.
-        let column = Tab::ALL.iter().position(|&t| t == tab).unwrap_or(0) as i32;
-        canvas.fill_rect(left + column * TAB_WIDTH, TOP, TAB_WIDTH as u32, TAB_HEIGHT as u32, style.selected_bg);
+        if let Some((_, _, x, w)) = tab_layout(view).into_iter().find(|&(each, ..)| each == tab) {
+            canvas.fill_rect(x, TOP, w as u32, TAB_HEIGHT as u32, style.selected_bg);
+        }
         canvas.fill_rect(left, TOP + TAB_HEIGHT - 1, (right - left) as u32, 1, style.selected_bg);
         // Text boxes are outlined, brighter while typing in them.
         let outline = |canvas: &mut Canvas, (x, y, w, h): (i32, i32, i32, i32), focused: bool| {
@@ -496,7 +518,7 @@ fn draw_list_backgrounds(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, 
             canvas.fill_rect(x, y, 1, h as u32, color);
             canvas.fill_rect(x + w - 1, y, 1, h as u32, color);
         };
-        if tab == Tab::Browse && view.signing_in {
+        if tab.is_library() && view.signing_in {
             for field in 0..FORM_FIELDS {
                 outline(canvas, field_box(width, field), browser.focus == Some(Field::Form(field)));
             }
@@ -504,14 +526,14 @@ fn draw_list_backgrounds(canvas: &mut Canvas, skin: &Skin, view: &PlaylistView, 
             canvas.fill_rect(x, y, w as u32, h as u32, style.selected_bg);
             return;
         }
-        if tab == Tab::Browse {
+        if tab.is_library() {
             outline(canvas, field_box(width, 0), browser.focus == Some(Field::Search));
         }
     }
 
     for row in 0..view.visible_rows() {
         let index = view.scroll + row;
-        let selected = if view.tab == Some(Tab::Browse) {
+        let selected = if view.tab.is_some_and(Tab::is_library) {
             match browser.row(index) {
                 Some(Row::Item(item, _)) => browser.level().selected == Some(item),
                 Some(Row::Back) => false,
@@ -582,16 +604,16 @@ pub fn draw_list_text(
 
     if let Some(tab) = view.tab {
         let (top, height) = (TOP * s, (TAB_HEIGHT - 1) * s);
-        for (column, each) in Tab::ALL.into_iter().enumerate() {
-            let x = (LEFT + column as i32 * TAB_WIDTH) * s;
-            let label = each.label();
+        for (each, label, x, w) in tab_layout(view) {
+            let (x, w) = (x * s, w * s);
+            let label = font.fit(label, w - 2 * s);
             let color = if each == tab { style.current } else { style.normal };
-            let label_x = x + (TAB_WIDTH * s - font.width(label)) / 2;
+            let label_x = x + (w - font.width(&label)) / 2;
             for clip in clips(top, height) {
-                font.draw(canvas, label, label_x, top, height, color, within(clip, (x, x + TAB_WIDTH * s)));
+                font.draw(canvas, &label, label_x, top, height, color, within(clip, (x, x + w)));
             }
         }
-        if tab == Tab::Browse && view.signing_in {
+        if tab.is_library() && view.signing_in {
             for field in 0..FORM_FIELDS {
                 let rect = field_box(width, field);
                 let focused = browser.focus == Some(Field::Form(field));
@@ -611,7 +633,7 @@ pub fn draw_list_text(
             }
             return;
         }
-        if tab == Tab::Browse {
+        if tab.is_library() {
             let rect = field_box(width, 0);
             let focused = browser.focus == Some(Field::Search);
             draw_field(canvas, font, style, &browser.search, "Search", false, focused, rect, s, &clips(top, height));
@@ -619,7 +641,7 @@ pub fn draw_list_text(
     }
 
     let current = playlist.current_index();
-    let browsing = view.tab == Some(Tab::Browse);
+    let browsing = view.tab.is_some_and(Tab::is_library);
     let mut drawn = 0;
     for row in 0..view.visible_rows() {
         let index = view.scroll + row;
@@ -853,13 +875,14 @@ mod tests {
     #[test]
     fn tabs_move_the_list_down() {
         let mut view = PlaylistView { tab: Some(Tab::Queue), ..PlaylistView::default() };
-        assert_eq!(hit_test(&view, 10, LEFT + 5, TOP + 2), Hit::Tab(Tab::Browse));
-        assert_eq!(hit_test(&view, 10, LEFT + TAB_WIDTH + 5, TOP + 2), Hit::Tab(Tab::Queue));
-        assert_eq!(hit_test(&view, 10, LEFT + 3 * TAB_WIDTH, TOP + 2), Hit::Nothing);
+        // "Library" is 10 + 7 x 5 = 45 wide, then "Queue" 35.
+        assert_eq!(hit_test(&view, 10, LEFT + 5, TOP + 2), Hit::Tab(Tab::Library(0)));
+        assert_eq!(hit_test(&view, 10, LEFT + 50, TOP + 2), Hit::Tab(Tab::Queue));
+        assert_eq!(hit_test(&view, 10, LEFT + 81, TOP + 2), Hit::Nothing);
         let first = TOP + LIST_PADDING + TAB_HEIGHT;
         assert_eq!(hit_test(&view, 10, 50, first + 1), Hit::Track(0));
 
-        view.tab = Some(Tab::Browse);
+        view.tab = Some(Tab::Library(0));
         assert_eq!(hit_test(&view, 10, 50, first + 1), Hit::SearchBox);
         assert_eq!(hit_test(&view, 10, 50, first + FIELD_HEIGHT + 1), Hit::BrowseRow(0));
         assert_eq!(hit_test(&view, 1, 50, first + FIELD_HEIGHT + ROW_HEIGHT + 1), Hit::BelowTracks);
@@ -868,6 +891,22 @@ mod tests {
         view.height = MIN_HEIGHT;
         assert_eq!(view.visible_rows(), 2);
         assert_eq!(PlaylistView { height: MIN_HEIGHT, tab: Some(Tab::Queue), ..view }.visible_rows(), 3);
+    }
+
+    #[test]
+    fn tabs_fit_their_labels_or_share_the_width() {
+        let libraries = vec!["Music".to_string(), "Audio books".to_string()];
+        let view = PlaylistView { libraries, ..PlaylistView::default() };
+        let layout: Vec<(Tab, i32, i32)> = tab_layout(&view).into_iter().map(|(t, _, x, w)| (t, x, w)).collect();
+        assert_eq!(layout, [(Tab::Library(0), LEFT, 35), (Tab::Library(1), LEFT + 35, 65), (Tab::Queue, LEFT + 100, 35)]);
+
+        // Too many to fit the narrowest window: they shrink to share it.
+        let libraries = (0..6).map(|i| format!("Library number {i}")).collect();
+        let view = PlaylistView { libraries, tab: Some(Tab::Library(0)), ..PlaylistView::default() };
+        let layout = tab_layout(&view);
+        let (_, _, x, w) = layout.last().unwrap();
+        assert!(x + w <= MIN_WIDTH as i32 - RIGHT, "the last tab ends at {}", x + w);
+        assert_eq!(hit_test(&view, 0, x + 1, TOP + 2), Hit::Tab(Tab::Queue));
     }
 
     #[test]

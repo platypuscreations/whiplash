@@ -6,7 +6,6 @@ use super::App;
 use crate::config::{self, PlayerMode};
 use crate::playlist::Playlist;
 use crate::playlist_file;
-use crate::ui::browse::Browser;
 use crate::ui::playlist_window::Tab;
 
 impl App {
@@ -96,7 +95,6 @@ impl App {
         self.parked.insert(self.mode, previous);
         self.mode = mode;
         self.opener_job = None;
-        self.browser = Browser::default();
         self.pl.tab = tab_for(mode);
         self.pl.scroll = 0;
         self.pl.queue_scroll = 0;
@@ -112,5 +110,5 @@ impl App {
 /// Which tab the playlist window opens on in `mode`: a music server's
 /// library, or none for local files.
 fn tab_for(mode: PlayerMode) -> Option<Tab> {
-    (mode != PlayerMode::Local).then_some(Tab::Browse)
+    (mode != PlayerMode::Local).then_some(Tab::Library(0))
 }

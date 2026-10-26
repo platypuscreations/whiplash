@@ -20,6 +20,7 @@ mod config;
 mod eqf;
 mod library;
 mod location;
+mod log;
 mod metadata;
 mod net;
 mod playlist;
